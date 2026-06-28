@@ -34,7 +34,10 @@ jobs:
         with:
           platforms: linux/arm64
           push: false
-          tags: ghcr.io/apple/container-builder-shim/builder:test
+          tags: ghcr.io/${{ github.repository_owner }}/container-builder-shim/builder:test
+          build-args: |
+            GIT_TAG=${{ github.sha }}
+            SOURCE_REPOSITORY=https://github.com/${{ github.repository }}
           outputs: type=oci,dest=container-builder-shim.tar
       - name: Save artifacts
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2

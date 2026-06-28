@@ -85,6 +85,34 @@ const (
 
 var keyBOpts = struct{}{}
 
+func extractSSHAgentConfigs(values []string) []sshprovider.AgentConfig {
+	if len(values) == 0 {
+		return nil
+	}
+	agentConfigs := make([]sshprovider.AgentConfig, 0, len(values))
+	for _, value := range values {
+		id, path, hasPath := strings.Cut(value, "=")
+		id = strings.TrimSpace(id)
+		path = strings.TrimSpace(path)
+		if !hasPath && strings.HasPrefix(id, "/") {
+			path = id
+			id = "default"
+			hasPath = true
+		}
+		if id == "" {
+			id = "default"
+		}
+		config := sshprovider.AgentConfig{
+			ID: id,
+		}
+		if hasPath && path != "" {
+			config.Paths = []string{path}
+		}
+		agentConfigs = append(agentConfigs, config)
+	}
+	return agentConfigs
+}
+
 type BOpts struct {
 	BuildID        string
 	Dockerfile     []byte
@@ -241,42 +269,13 @@ func NewBuildOpts(ctx context.Context, basePath string, contextMap map[string][]
 		return args, nil
 	}
 
-	sshExtract := func(key string) []sshprovider.AgentConfig {
-		values, ok := contextMap[key]
-		if !ok {
-			return nil
-		}
-		agentConfigs := make([]sshprovider.AgentConfig, 0, len(values))
-		for _, value := range values {
-			id, path, hasPath := strings.Cut(value, "=")
-			id = strings.TrimSpace(id)
-			path = strings.TrimSpace(path)
-			if !hasPath && strings.HasPrefix(id, "/") {
-				path = id
-				id = "default"
-				hasPath = true
-			}
-			if id == "" {
-				id = "default"
-			}
-			config := sshprovider.AgentConfig{
-				ID: id,
-			}
-			if hasPath && path != "" {
-				config.Paths = []string{path}
-			}
-			agentConfigs = append(agentConfigs, config)
-		}
-		return agentConfigs
-	}
-
 	labels := mapExtract(KeyLabels)
 	buildArgs := mapExtract(KeyBuildArgs)
 	secrets, err := mapExtractB64(KeySecrets)
 	if err != nil {
 		return nil, err
 	}
-	ssh := sshExtract(KeySSH)
+	ssh := extractSSHAgentConfigs(contextMap[KeySSH])
 	cacheIn := contextMap[KeyCacheIn]
 	cacheOut := contextMap[KeyCacheOut]
 	outputs := contextMap[KeyOutput]

@@ -36,4 +36,7 @@ jobs:
         with:
           platforms: linux/arm64
           push: true
-          tags: ghcr.io/apple/container-builder-shim/builder:${{ github.ref_name }}
+          tags: ghcr.io/${{ github.repository_owner }}/container-builder-shim/builder:${{ github.ref_name }}
+          build-args: |
+            GIT_TAG=${{ github.ref_name }}
+            SOURCE_REPOSITORY=https://github.com/${{ github.repository }}

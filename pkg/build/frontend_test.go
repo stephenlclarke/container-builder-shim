@@ -347,6 +347,32 @@ func TestGlobalArgs(t *testing.T) {
 	}
 }
 
+func TestExtractSSHAgentConfigs(t *testing.T) {
+	configs := extractSSHAgentConfigs([]string{"default", "git=/tmp/ssh-agent.sock", "/tmp/default-agent.sock"})
+
+	if got, want := len(configs), 3; got != want {
+		t.Fatalf("len(opts.SSH) = %d, want %d", got, want)
+	}
+	if got, want := configs[0].ID, "default"; got != want {
+		t.Fatalf("opts.SSH[0].ID = %q, want %q", got, want)
+	}
+	if len(configs[0].Paths) != 0 {
+		t.Fatalf("opts.SSH[0].Paths = %v, want empty", configs[0].Paths)
+	}
+	if got, want := configs[1].ID, "git"; got != want {
+		t.Fatalf("opts.SSH[1].ID = %q, want %q", got, want)
+	}
+	if got, want := configs[1].Paths, []string{"/tmp/ssh-agent.sock"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("opts.SSH[1].Paths = %v, want %v", got, want)
+	}
+	if got, want := configs[2].ID, "default"; got != want {
+		t.Fatalf("opts.SSH[2].ID = %q, want %q", got, want)
+	}
+	if got, want := configs[2].Paths, []string{"/tmp/default-agent.sock"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("opts.SSH[2].Paths = %v, want %v", got, want)
+	}
+}
+
 func TestResolveStates(t *testing.T) {
 	tests := []struct {
 		name                  string

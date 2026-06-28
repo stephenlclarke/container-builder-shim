@@ -22,6 +22,8 @@ GO          ?= go
 GIT_TAG     := $(shell git describe --tags --always --dirty)
 GO_LDFLAGS  := -s -w -X main.VERSION=$(GIT_TAG)
 GOFLAGS    ?= -ldflags="$(GO_LDFLAGS)"
+IMAGE_TAG  ?= $(BINARY_NAME):$(GIT_TAG)
+SOURCE_REPOSITORY ?= https://github.com/apple/container-builder-shim
 
 GOLANGCI_LINT := $(shell command -v golangci-lint 2>/dev/null)
 
@@ -108,7 +110,10 @@ check-licenses:
 
 .PHONY: image
 image: build-linux
-	container build -t $(BINARY_NAME):$(GIT_TAG) .
+	container build \
+		--build-arg GIT_TAG=$(GIT_TAG) \
+		--build-arg SOURCE_REPOSITORY=$(SOURCE_REPOSITORY) \
+		-t $(IMAGE_TAG) .
 
 .PHONY: release
 release: fmt vet lint test build-linux docker-image
@@ -117,4 +122,3 @@ release: fmt vet lint test build-linux docker-image
 clean:
 	$(GO) clean
 	rm -rf $(BUILD_DIR) coverage.out
-
