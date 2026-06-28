@@ -1,9 +1,11 @@
 # meta arg for final base image
 ARG FINAL_IMAGE=docker.io/moby/buildkit:v0.26.2
 
-FROM golang:1.25-alpine AS build-base
+FROM --platform=$BUILDPLATFORM golang:1.25-alpine AS build-base
 
 ARG GIT_TAG
+ARG TARGETARCH
+ARG TARGETOS
 ENV VERSION=${GIT_TAG:-dev}
 
 WORKDIR /src
