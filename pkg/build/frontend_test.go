@@ -23,6 +23,9 @@ import (
 	"testing"
 
 	"github.com/containerd/platforms"
+	"github.com/moby/buildkit/client/llb"
+	"github.com/moby/buildkit/frontend/dockerfile/dockerfile2llb"
+	"github.com/moby/buildkit/frontend/dockerui"
 	"github.com/opencontainers/go-digest"
 	ocispecs "github.com/opencontainers/image-spec/specs-go/v1"
 
@@ -66,6 +69,37 @@ func (m *testMockStream) Recv() (*api.ClientStream, error) {
 
 func (m *testMockStream) Context() context.Context {
 	return m.ctx
+}
+
+func TestSetDockerfileSourceMap(t *testing.T) {
+	state := llb.Scratch()
+	sourceMap := llb.NewSourceMap(&state, "Dockerfile", "dockerfile", []byte("FROM scratch\n"))
+	opt := dockerfile2llb.ConvertOpt{}
+
+	if err := setDockerfileSourceMap(&opt, &dockerui.Source{SourceMap: sourceMap}); err != nil {
+		t.Fatalf("setDockerfileSourceMap returned error: %v", err)
+	}
+	if opt.SourceMap != sourceMap {
+		t.Fatal("setDockerfileSourceMap did not attach source map")
+	}
+}
+
+func TestSetDockerfileSourceMapRejectsMissingSource(t *testing.T) {
+	for name, source := range map[string]*dockerui.Source{
+		"nil source":     nil,
+		"nil source map": {},
+	} {
+		t.Run(name, func(t *testing.T) {
+			opt := dockerfile2llb.ConvertOpt{}
+
+			if err := setDockerfileSourceMap(&opt, source); err == nil {
+				t.Fatal("setDockerfileSourceMap returned nil error")
+			}
+			if opt.SourceMap != nil {
+				t.Fatal("setDockerfileSourceMap attached source map on error")
+			}
+		})
+	}
 }
 
 // testInterceptingResolver captures resolver calls and provides mock responses

@@ -72,6 +72,8 @@ const (
 	KeyCacheOut = "cache-out"
 	// Additional export destinations.
 	KeyOutput = "outputs"
+	// Run Dockerfile build checks without exporting an image.
+	KeyCheck = "check"
 	// Unique build identifier.
 	KeyBuildID = "build-id"
 	// Provenance attestation metadata key from the host.
@@ -161,6 +163,7 @@ type BOpts struct {
 	CacheOut       []string
 	Outputs        []string
 	Labels         map[string]string
+	Check          bool
 	ProgressWriter progresswriter.Writer
 
 	ContentStore *content.ContentStoreProxy
@@ -314,6 +317,7 @@ func NewBuildOpts(ctx context.Context, basePath string, contextMap map[string][]
 	cacheIn := contextMap[KeyCacheIn]
 	cacheOut := contextMap[KeyCacheOut]
 	outputs := contextMap[KeyOutput]
+	_, check := first(KeyCheck)
 
 	stdioProxy, err := stdio.NewStdioProxy(ctx, progress == "tty")
 	if err != nil {
@@ -418,6 +422,7 @@ func NewBuildOpts(ctx context.Context, basePath string, contextMap map[string][]
 		CacheOut:       cacheOut,
 		Outputs:        outputs,
 		basePath:       filepath.Join(basePath, buildID),
+		Check:          check,
 	}
 
 	return bopts, nil

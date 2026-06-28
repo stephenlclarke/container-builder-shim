@@ -17,6 +17,8 @@
 package build
 
 import (
+	"context"
+	"encoding/base64"
 	"reflect"
 	"testing"
 )
@@ -58,5 +60,20 @@ func TestExtractAttestationsRejectsInvalidCSV(t *testing.T) {
 	})
 	if err == nil {
 		t.Fatal("expected invalid attestation CSV to fail")
+	}
+}
+
+func TestNewBuildOptsParsesCheckMetadata(t *testing.T) {
+	opts, err := NewBuildOpts(context.Background(), t.TempDir(), map[string][]string{
+		KeyBuildID:    {"build-id"},
+		KeyDockerfile: {base64.StdEncoding.EncodeToString([]byte("FROM scratch\n"))},
+		KeyTag:        {"example/app:latest"},
+		KeyCheck:      {""},
+	})
+	if err != nil {
+		t.Fatalf("NewBuildOpts() error = %v", err)
+	}
+	if !opts.Check {
+		t.Fatal("opts.Check = false, want true")
 	}
 }

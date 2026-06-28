@@ -46,12 +46,12 @@ type StdioProxy struct {
 }
 
 func NewStdioProxy(ctx context.Context, tty bool) (*StdioProxy, error) {
-	c, s, err := console.NewPty()
-	if err != nil {
-		return nil, err
-	}
 	proxy := new(StdioProxy)
 	if tty {
+		c, s, err := console.NewPty()
+		if err != nil {
+			return nil, err
+		}
 		proxy.console = c
 		proxy.s = s
 	}
