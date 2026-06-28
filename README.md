@@ -49,6 +49,19 @@ flowchart LR
 4. The macOS host processes the request (serving context files, resolving images, etc.) and streams the response back.
 5. Build output and metadata flow back through container-builder-shim to BuildKit.
 
+## Build Attestations
+
+The shim accepts gRPC-safe attestation metadata keys from the host and
+forwards them into BuildKit's `SolveOpt.FrontendAttrs`:
+
+- `attest-provenance` becomes `attest:provenance`
+- `attest-sbom` becomes `attest:sbom`
+
+Values are parsed with BuildKit's attestation parser before the solve starts,
+so invalid CSV-style attestation parameters fail early. This keeps
+`container build --provenance` and `container build --sbom` behavior aligned
+with BuildKit while leaving attestation generation to BuildKit itself.
+
 ## Build Context Transfer
 
 Build context files flow from the macOS host to BuildKit through a three-tier pipeline. Each tier has distinct responsibilities; understanding the split is important when working on file-transfer or security-related code.
@@ -102,4 +115,3 @@ If BuildKit does not supply `followpaths`, the shim falls back to `addedGlobs`: 
 ## Contributing
 
 Contributions to Containerization are welcomed and encouraged. Please see our [main contributing guide](https://github.com/apple/containerization/blob/main/CONTRIBUTING.md) for more information.
-

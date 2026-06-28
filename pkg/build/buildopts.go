@@ -24,6 +24,7 @@ import (
 	"strings"
 
 	"github.com/containerd/platforms"
+	bkattestations "github.com/moby/buildkit/frontend/attestations"
 	"github.com/moby/buildkit/frontend/dockerfile/instructions"
 	"github.com/moby/buildkit/frontend/dockerfile/parser"
 	"github.com/moby/buildkit/frontend/dockerfile/shell"
@@ -73,6 +74,14 @@ const (
 	KeyOutput = "outputs"
 	// Unique build identifier.
 	KeyBuildID = "build-id"
+	// Provenance attestation metadata key from the host.
+	KeyAttestProvenance = "attest-provenance"
+	// SBOM attestation metadata key from the host.
+	KeyAttestSBOM = "attest-sbom"
+	// BuildKit provenance attestation frontend attribute.
+	KeyFrontendAttestProvenance = "attest:provenance"
+	// BuildKit SBOM attestation frontend attribute.
+	KeyFrontendAttestSBOM = "attest:sbom"
 )
 
 const (
@@ -113,6 +122,27 @@ func extractSSHAgentConfigs(values []string) []sshprovider.AgentConfig {
 	return agentConfigs
 }
 
+func extractAttestations(contextMap map[string][]string) (map[string]string, error) {
+	values := map[string]string{}
+	for metadataKey, frontendKey := range map[string]string{
+		KeyAttestProvenance: KeyFrontendAttestProvenance,
+		KeyAttestSBOM:       KeyFrontendAttestSBOM,
+	} {
+		rawValues, ok := contextMap[metadataKey]
+		if !ok || len(rawValues) == 0 {
+			continue
+		}
+		values[frontendKey] = rawValues[len(rawValues)-1]
+	}
+	if len(values) == 0 {
+		return nil, nil
+	}
+	if _, err := bkattestations.Parse(values); err != nil {
+		return nil, err
+	}
+	return values, nil
+}
+
 type BOpts struct {
 	BuildID        string
 	Dockerfile     []byte
@@ -126,6 +156,7 @@ type BOpts struct {
 	BuildArgs      map[string]string
 	Secrets        map[string][]byte
 	SSH            []sshprovider.AgentConfig
+	Attestations   map[string]string
 	CacheIn        []string
 	CacheOut       []string
 	Outputs        []string
@@ -276,6 +307,10 @@ func NewBuildOpts(ctx context.Context, basePath string, contextMap map[string][]
 		return nil, err
 	}
 	ssh := extractSSHAgentConfigs(contextMap[KeySSH])
+	attestations, err := extractAttestations(contextMap)
+	if err != nil {
+		return nil, err
+	}
 	cacheIn := contextMap[KeyCacheIn]
 	cacheOut := contextMap[KeyCacheOut]
 	outputs := contextMap[KeyOutput]
@@ -378,6 +413,7 @@ func NewBuildOpts(ctx context.Context, basePath string, contextMap map[string][]
 		BuildArgs:      buildArgs,
 		Secrets:        secrets,
 		SSH:            ssh,
+		Attestations:   attestations,
 		CacheIn:        cacheIn,
 		CacheOut:       cacheOut,
 		Outputs:        outputs,

@@ -171,6 +171,9 @@ func Build(ctx context.Context, opts *BOpts) error {
 	for k, v := range opts.Labels {
 		solveOpt.FrontendAttrs["label:"+k] = v
 	}
+	for k, v := range opts.Attestations {
+		solveOpt.FrontendAttrs[k] = v
+	}
 	solveOpt.Frontend = "dockerfile.v1"
 
 	if len(opts.SSH) > 0 {
