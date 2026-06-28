@@ -164,7 +164,9 @@ func (m *testMockStream) handleResolverRequests(interceptor *testInterceptingRes
 	}()
 }
 
-func newTestInterceptingResolver(ctx context.Context) (*testInterceptingResolver, func(), error) {
+func newTestInterceptingResolver(t *testing.T, ctx context.Context) (*testInterceptingResolver, func(), error) {
+	t.Helper()
+
 	// Create mock stream
 	mockStr := newTestMockStream(ctx)
 
@@ -186,7 +188,9 @@ func newTestInterceptingResolver(ctx context.Context) (*testInterceptingResolver
 
 	// Start pipeline in background
 	go func() {
-		pipeline.Run()
+		if err := pipeline.Run(); err != nil && err != context.Canceled {
+			t.Errorf("pipeline.Run returned %v", err)
+		}
 	}()
 
 	cleanup := func() {
@@ -776,7 +780,7 @@ LABEL maintainer="${MAINTAINER}" \
 			defer cancel()
 
 			// Create intercepting resolver
-			interceptor, cleanup, err := newTestInterceptingResolver(ctx)
+			interceptor, cleanup, err := newTestInterceptingResolver(t, ctx)
 			if err != nil {
 				t.Fatalf("Failed to create intercepting resolver: %v", err)
 			}

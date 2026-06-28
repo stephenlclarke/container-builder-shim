@@ -25,8 +25,8 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/containerd/containerd/platforms"
 	"github.com/containerd/containerd/v2/core/content"
+	"github.com/containerd/platforms"
 	"github.com/moby/buildkit/client"
 	"github.com/moby/buildkit/cmd/buildctl/build"
 	"github.com/moby/buildkit/session"
@@ -99,7 +99,9 @@ func Build(ctx context.Context, opts *BOpts) error {
 			switch export.Type {
 			case client.ExporterLocal:
 				localDest := filepath.Join(GlobalExportPath, opts.BuildID, "local")
-				os.MkdirAll(localDest, 0o755)
+				if err := os.MkdirAll(localDest, 0o755); err != nil {
+					return err
+				}
 				if export.OutputDir == "" {
 					export.OutputDir = localDest
 				}

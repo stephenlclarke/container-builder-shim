@@ -35,10 +35,7 @@ func (p *FSSyncProxy) RegisterDemux(id string, d *stream.Demultiplexer) {
 	demuxes[id] = d
 }
 
-var (
-	demuxes = map[string]*stream.Demultiplexer{}
-	headers = map[string][]byte{}
-)
+var demuxes = map[string]*stream.Demultiplexer{}
 
 func makeNestedTarHeaderAndBody() (checksum string, full []byte) {
 	const payload = "hello from tar with nesting\n"

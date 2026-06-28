@@ -20,7 +20,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/containerd/containerd/platforms"
+	"github.com/containerd/platforms"
 	"github.com/moby/buildkit/client/llb/sourceresolver"
 	"github.com/opencontainers/go-digest"
 
@@ -28,18 +28,20 @@ import (
 	"github.com/apple/container-builder-shim/pkg/stream"
 )
 
-var RespKey = struct{}{}
+type respContextKey struct{}
+
+var respKey respContextKey
 
 // shadow this stage's Request
 func (p *ResolverProxy) Request(ctx context.Context, _ *api.ServerStream, _ string, _ ...stream.FilterByIDFn) (*api.ServerStream, error) {
-	if v := ctx.Value(RespKey); v != nil {
+	if v := ctx.Value(respKey); v != nil {
 		return v.(*api.ServerStream), nil
 	}
 	return &api.ServerStream{}, nil
 }
 
 func ctxWithResp(resp *api.ServerStream) context.Context {
-	return context.WithValue(context.Background(), RespKey, resp)
+	return context.WithValue(context.Background(), respKey, resp)
 }
 
 func newImageTransferClientStream(it *api.ImageTransfer) *api.ClientStream {

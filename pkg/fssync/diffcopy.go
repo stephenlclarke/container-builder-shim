@@ -19,6 +19,7 @@ package fssync
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"io"
 	"io/fs"
 	"os"
@@ -69,12 +70,11 @@ type sendHandle struct {
 }
 
 type sender struct {
-	conn            Stream
-	fs              *FS
-	files           map[uint32]string
-	mu              sync.RWMutex
-	progressCurrent int
-	sendpipeline    chan *sendHandle
+	conn         Stream
+	fs           *FS
+	files        map[uint32]string
+	mu           sync.RWMutex
+	sendpipeline chan *sendHandle
 }
 
 func (s *sender) run(ctx context.Context) error {
@@ -83,7 +83,9 @@ func (s *sender) run(ctx context.Context) error {
 	g.Go(func() error {
 		err := s.walk(ctx)
 		if err != nil {
-			s.conn.SendMsg(&types.Packet{Type: types.PACKET_ERR, Data: []byte(err.Error())})
+			if sendErr := s.conn.SendMsg(&types.Packet{Type: types.PACKET_ERR, Data: []byte(err.Error())}); sendErr != nil {
+				return fmt.Errorf("walk failed with %v and sending the error packet failed: %w", err, sendErr)
+			}
 		}
 		return err
 	})

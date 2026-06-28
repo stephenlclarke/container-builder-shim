@@ -23,9 +23,10 @@ GIT_TAG     := $(shell git describe --tags --always --dirty)
 GO_LDFLAGS  := -s -w -X main.VERSION=$(GIT_TAG)
 GOFLAGS    ?= -ldflags="$(GO_LDFLAGS)"
 IMAGE_TAG  ?= $(BINARY_NAME):$(GIT_TAG)
-SOURCE_REPOSITORY ?= https://github.com/apple/container-builder-shim
+SOURCE_REPOSITORY ?= https://github.com/stephenlclarke/container-builder-shim
 
-GOLANGCI_LINT := $(shell command -v golangci-lint 2>/dev/null)
+GOLANGCI_LINT_VERSION ?= v1.64.8
+GOLANGCI_LINT ?= $(GO) run github.com/golangci/golangci-lint/cmd/golangci-lint@$(GOLANGCI_LINT_VERSION)
 
 -include Protobuf.Makefile
 
@@ -60,11 +61,7 @@ vet:
 
 .PHONY: lint
 lint:
-ifndef GOLANGCI_LINT
-	@echo "golangci-lint not found – skipping. Install from https://golangci-lint.run/welcome/install/ to enable." >&2
-else
 	$(GOLANGCI_LINT) run
-endif
 
 .PHONY: tidy
 tidy:
@@ -116,7 +113,7 @@ image: build-linux
 		-t $(IMAGE_TAG) .
 
 .PHONY: release
-release: fmt vet lint test build-linux docker-image
+release: fmt vet lint test image
 
 .PHONY: clean
 clean:

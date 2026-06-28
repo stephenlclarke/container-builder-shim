@@ -21,10 +21,12 @@ import (
 	"math"
 	"reflect"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
 	contentx "github.com/containerd/containerd/v2/core/content"
+	"github.com/containerd/errdefs"
 	"github.com/opencontainers/go-digest"
 
 	"github.com/apple/container-builder-shim/pkg/api"
@@ -43,6 +45,9 @@ func (p *ContentStoreProxy) Request(ctx context.Context, req *api.ServerStream, 
 	offInt, _ := strconv.ParseInt(off, 10, 0)
 	lenInt, _ := strconv.ParseInt(length, 10, 0)
 	if v := ctx.Value(ContentKey); v != nil {
+		if ret, ok := v.(*api.ServerStream); ok {
+			return ret, nil
+		}
 		if ret, ok := v.(*api.ImageTransfer); ok {
 			return &api.ServerStream{
 				PacketType: &api.ServerStream_ImageTransfer{
@@ -56,8 +61,10 @@ func (p *ContentStoreProxy) Request(ctx context.Context, req *api.ServerStream, 
 		return &api.ServerStream{
 			PacketType: &api.ServerStream_ImageTransfer{
 				ImageTransfer: &api.ImageTransfer{
-					Data:     data[start:end],
-					Metadata: map[string]string{},
+					Data: data[start:end],
+					Metadata: map[string]string{
+						"size": strconv.Itoa(len(data)),
+					},
 				},
 			},
 		}, nil
@@ -132,6 +139,86 @@ func TestInfo_ServerError(t *testing.T) {
 	cs := &ContentStoreProxy{}
 	if _, err := cs.Info(ctx, digest.Digest("sha256:bad")); err == nil {
 		t.Fatal("Info returned nil error, want propagated server error")
+	}
+}
+
+func TestContentStoreProxyBasics(t *testing.T) {
+	cs, err := NewContentStoreProxy()
+	if err != nil {
+		t.Fatalf("NewContentStoreProxy returned err=%v", err)
+	}
+	if cs.String() != "content-store" {
+		t.Fatalf("String() = %q, want content-store", cs.String())
+	}
+
+	matching := &api.ClientStream{
+		PacketType: &api.ClientStream_ImageTransfer{
+			ImageTransfer: &api.ImageTransfer{
+				Metadata: map[string]string{"stage": "content-store"},
+			},
+		},
+	}
+	if err := cs.Filter(matching); err != nil {
+		t.Fatalf("Filter matching packet returned err=%v", err)
+	}
+
+	ignored := &api.ClientStream{
+		PacketType: &api.ClientStream_ImageTransfer{
+			ImageTransfer: &api.ImageTransfer{
+				Metadata: map[string]string{"stage": "other"},
+			},
+		},
+	}
+	if err := cs.Filter(ignored); err != stream.ErrIgnorePacket {
+		t.Fatalf("Filter ignored packet err=%v, want ErrIgnorePacket", err)
+	}
+}
+
+func TestContentStoreProxyRequestRequiresImageTransfer(t *testing.T) {
+	cs := &ContentStoreProxy{}
+	ctx := context.WithValue(context.Background(), ContentKey, &api.ServerStream{})
+
+	_, err := cs.request(ctx, &api.ImageTransfer{
+		Metadata: map[string]string{},
+	})
+	if err == nil || !strings.Contains(err.Error(), "missing image transfer") {
+		t.Fatalf("request err=%v, want missing image transfer error", err)
+	}
+}
+
+func TestContentStoreProxyIngestionMethodsReturnNotImplemented(t *testing.T) {
+	cs := &ContentStoreProxy{}
+	ctx := context.Background()
+
+	if _, err := cs.Writer(ctx); !errdefs.IsNotImplemented(err) {
+		t.Fatalf("Writer err=%v, want ErrNotImplemented", err)
+	}
+	if _, err := cs.Status(ctx, "ref"); !errdefs.IsNotImplemented(err) {
+		t.Fatalf("Status err=%v, want ErrNotImplemented", err)
+	}
+	if _, err := cs.ListStatuses(ctx); !errdefs.IsNotImplemented(err) {
+		t.Fatalf("ListStatuses err=%v, want ErrNotImplemented", err)
+	}
+	if err := cs.Abort(ctx, "ref"); !errdefs.IsNotImplemented(err) {
+		t.Fatalf("Abort err=%v, want ErrNotImplemented", err)
+	}
+}
+
+func TestDeleteSuccessAndServerError(t *testing.T) {
+	d := digest.Digest("sha256:abcdef")
+	ctx := context.WithValue(context.Background(), ContentKey, &api.ImageTransfer{
+		Metadata: map[string]string{},
+	})
+
+	if err := (&ContentStoreProxy{}).Delete(ctx, d); err != nil {
+		t.Fatalf("Delete returned err=%v", err)
+	}
+
+	ctx = context.WithValue(context.Background(), ContentKey, &api.ImageTransfer{
+		Metadata: map[string]string{"error": "boom"},
+	})
+	if err := (&ContentStoreProxy{}).Delete(ctx, d); err == nil {
+		t.Fatal("Delete returned nil error, want propagated server error")
 	}
 }
 

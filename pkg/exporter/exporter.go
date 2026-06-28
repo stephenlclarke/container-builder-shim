@@ -57,7 +57,9 @@ func (e *ExporterProxy) String() string {
 }
 
 func (e *ExporterProxy) Close() error {
-	e.Write([]byte{})
+	if _, err := e.Write([]byte{}); err != nil {
+		return err
+	}
 	close(e.closeCh)
 	return nil
 }

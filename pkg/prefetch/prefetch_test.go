@@ -473,7 +473,9 @@ func TestPrefetcherCancelAndClose(t *testing.T) {
 		go func(offset int64) {
 			defer wg.Done()
 			buf := make([]byte, 8192)
-			prefetcher.ReadAt(buf, offset)
+			if _, err := prefetcher.ReadAt(buf, offset); err != nil && err != io.EOF && err != ErrPrefetcherClosed {
+				t.Errorf("ReadAt(%d) returned %v", offset, err)
+			}
 		}(int64(i * 10000))
 	}
 

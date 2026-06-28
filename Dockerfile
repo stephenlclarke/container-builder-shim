@@ -10,7 +10,7 @@ ENV VERSION=${GIT_TAG:-dev}
 
 WORKDIR /src
 
-# Install build dependencies 
+# Install build dependencies
 RUN apk update && \
 	apk add --no-cache ca-certificates && \
 	update-ca-certificates
@@ -31,7 +31,7 @@ RUN GOARCH=${TARGETARCH:-arm64} GOOS=${TARGETOS:-linux} CGO_ENABLED=0 go build \
 	-tags "osusergo netgo static_build seccomp" \
 	-o /usr/local/bin/container-builder-shim
 
-ARG SOURCE_REPOSITORY=https://github.com/apple/container-builder-shim
+ARG SOURCE_REPOSITORY=https://github.com/stephenlclarke/container-builder-shim
 
 # Final Image
 FROM ${FINAL_IMAGE} AS final

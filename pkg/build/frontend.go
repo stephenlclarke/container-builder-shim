@@ -377,13 +377,8 @@ func solvePlatform(ctx context.Context, bopts *BOpts, pl ocispecs.Platform, c ga
 		return nil, nil, err
 	}
 
-	platform, err := result.State.GetPlatform(ctx)
-	if err != nil {
+	if _, err := result.State.GetPlatform(ctx); err != nil {
 		return nil, nil, err
-	}
-
-	if platform == nil {
-		platform = &pl
 	}
 
 	r, err := c.Solve(ctx, gateway.SolveRequest{

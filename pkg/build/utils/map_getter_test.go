@@ -33,11 +33,6 @@ func TestNewMapGetter(t *testing.T) {
 	if getter == nil {
 		t.Fatal("NewMapGetter returned nil")
 	}
-
-	// The type should implement MapGetter
-	if _, ok := getter.(MapGetter); !ok {
-		t.Fatal("NewMapGetter does not return a MapGetter interface")
-	}
 }
 
 func TestMapGetter_Keys(t *testing.T) {

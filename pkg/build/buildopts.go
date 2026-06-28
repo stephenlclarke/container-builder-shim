@@ -94,7 +94,9 @@ const (
 	DockerfileStaging = fssync.DockerfileStaging
 )
 
-var keyBOpts = struct{}{}
+type bOptsContextKey struct{}
+
+var keyBOpts bOptsContextKey
 
 func extractSSHAgentConfigs(values []string) []sshprovider.AgentConfig {
 	if len(values) == 0 {
@@ -371,12 +373,14 @@ func NewBuildOpts(ctx context.Context, basePath string, contextMap map[string][]
 			if err != nil {
 				continue
 			} else if runCmd, ok := cmd.(*instructions.RunCommand); ok {
-				runCmd.Expand(func(word string) (string, error) {
+				if err := runCmd.Expand(func(word string) (string, error) {
 					// Single word expander to normalize source path
 					source := strings.TrimPrefix(word, "/")
 					normalized := filepath.Clean(source)
 					return normalized, nil
-				})
+				}); err != nil {
+					return nil, err
+				}
 				mounts := instructions.GetMounts(runCmd)
 				for _, mount := range mounts {
 					// Only add source paths from bind mounts (not from other stages)

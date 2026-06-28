@@ -71,6 +71,10 @@ so invalid CSV-style attestation parameters fail early. This keeps
 `container build --provenance` and `container build --sbom` behavior aligned
 with BuildKit while leaving attestation generation to BuildKit itself.
 
+## Development
+
+Use `make test`, `make vet`, `make lint`, and `make coverage` before publishing changes. `make lint` runs a pinned `golangci-lint` through `go run` so the result does not depend on a stale local binary; set `GOLANGCI_LINT=/path/to/golangci-lint` only when you intentionally want to use a known-good installed version.
+
 ## Build Context Transfer
 
 Build context files flow from the macOS host to BuildKit through a three-tier pipeline. Each tier has distinct responsibilities; understanding the split is important when working on file-transfer or security-related code.
@@ -78,14 +82,14 @@ Build context files flow from the macOS host to BuildKit through a three-tier pi
 ### Responsibilities
 
 | Tier | Responsibility |
-|---|---|
+| --- | --- |
 | **macOS host** (`container` / `BuildFSSync`) | Owns the context directory. Enforces the context boundary: rejects any request that resolves outside the root. Packs requested files into a tar archive. Does **not** apply `.dockerignore`. |
 | **container-builder-shim** (`pkg/fssync`) | Bridges the host's wire format and BuildKit's `filesync` gRPC interface. Receives the tar, unpacks it to a content-addressed local cache, applies `.dockerignore` exclusions, and presents the result to BuildKit via `DiffCopy`. |
 | **BuildKit** | Owns all Dockerfile copy semantics: when to dereference symlinks, how to recurse directories, and how `.dockerignore` patterns are interpreted. Drives the transfer by sending `Walk` requests with `followpaths` and `exclude-patterns`. |
 
 ### Primary data flow
 
-```
+```text
 BuildKit ──► shim Walk (followpaths, exclude-patterns)
          ──► host: resolve globs, pack matching paths into tar
          ◄── tar stream
