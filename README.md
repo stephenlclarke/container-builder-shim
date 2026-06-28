@@ -2,6 +2,15 @@
 
 **container-builder-shim** is a lightweight bridge that connects BuildKit's session protocol with containerization's Build API. It enables compatibility between BuildKit (the build engine behind Docker) and containerization by translating messages and file transfers between their respective APIs.
 
+Stephen Clarke's fork is part of the four-repository `container` preview stack:
+
+- [`container`](https://github.com/stephenlclarke/container): pins this shim through `BUILDER_SHIM_REPOSITORY` and `BUILDER_SHIM_VERSION`.
+- [`container-compose`](https://github.com/stephenlclarke/container-compose): drives build workflows through the matching fork-backed `container` runtime.
+- [`containerization`](https://github.com/stephenlclarke/containerization): provides the Build API and runtime surfaces bridged by this shim.
+- [`homebrew-tap`](https://github.com/stephenlclarke/homebrew-tap): tracks this repository as `sources/container-builder-shim` on `main` for maintenance.
+
+This repository is not installed directly by Homebrew. `container` currently pins the immutable builder image `ghcr.io/stephenlclarke/container-builder-shim/builder:0.13.3`, and new shim work should be published as a tagged release image before `container` is updated to consume it. Go binaries and images for this stack are release-quality artifacts, not debug-only helpers.
+
 ## What It Does
 
 - **Protocol Translation:**
