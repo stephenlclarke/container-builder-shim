@@ -29,6 +29,7 @@ import (
 	"github.com/moby/buildkit/frontend/dockerfile/parser"
 	"github.com/moby/buildkit/frontend/dockerfile/shell"
 	"github.com/moby/buildkit/session/sshforward/sshprovider"
+	"github.com/moby/buildkit/util/entitlements"
 	"github.com/moby/buildkit/util/progress/progresswriter"
 	ocispecs "github.com/opencontainers/image-spec/specs-go/v1"
 
@@ -62,10 +63,24 @@ const (
 	KeyLabels = "labels"
 	// ARG key=value pairs passed to the Dockerfile.
 	KeyBuildArgs = "build-args"
+	// Additional named build contexts.
+	KeyBuildContexts = "build-contexts"
 	// RUN --mount=type=secret,... id:value pairs passed to the Dockerfile.
 	KeySecrets = "secrets"
 	// SSH agent to forward during the build process.
 	KeySSH = "ssh"
+	// BuildKit entitlements allowed for the build.
+	KeyEntitlements = "entitlements"
+	// Additional hosts to expose during Dockerfile RUN steps.
+	KeyAddHosts = "add-hosts"
+	// Default Dockerfile RUN network mode.
+	KeyNetwork = "network"
+	// Allow privileged Dockerfile RUN steps.
+	KeyPrivileged = "privileged"
+	// Size in bytes for /dev/shm in Dockerfile RUN steps.
+	KeyShmSize = "shm-size"
+	// Ulimit values for Dockerfile RUN steps.
+	KeyUlimit = "ulimit"
 	// Cache import sources.
 	KeyCacheIn = "cache-in"
 	// Cache export destinations.
@@ -147,6 +162,72 @@ func extractAttestations(contextMap map[string][]string) (map[string]string, err
 	return values, nil
 }
 
+func extractBuildContexts(values []string) (map[string]string, error) {
+	if len(values) == 0 {
+		return nil, nil
+	}
+	contexts := map[string]string{}
+	for _, value := range values {
+		name, source, ok := strings.Cut(value, "=")
+		name = strings.TrimSpace(name)
+		source = strings.TrimSpace(source)
+		if !ok || name == "" || source == "" {
+			return nil, ErrInvalidBuildContext
+		}
+		contexts[name] = source
+	}
+	return contexts, nil
+}
+
+func normalizedNetworkMode(value string) (string, error) {
+	mode := strings.ToLower(strings.TrimSpace(value))
+	switch mode {
+	case "", "default":
+		return "", nil
+	case "none", "host", "sandbox":
+		return mode, nil
+	default:
+		return "", ErrInvalidNetworkMode
+	}
+}
+
+func extractEntitlements(values []string, network string, privileged bool) ([]string, error) {
+	entitlementValues := make([]string, 0, len(values)+2)
+	entitlementValues = append(entitlementValues, values...)
+	if network == "host" {
+		entitlementValues = append(entitlementValues, entitlements.EntitlementNetworkHost.String())
+	}
+	if privileged {
+		entitlementValues = append(entitlementValues, entitlements.EntitlementSecurityInsecure.String())
+	}
+
+	seen := map[string]struct{}{}
+	result := make([]string, 0, len(entitlementValues))
+	for _, raw := range entitlementValues {
+		value := strings.TrimSpace(raw)
+		if value == "" {
+			continue
+		}
+		if _, _, err := entitlements.Parse(value); err != nil {
+			return nil, err
+		}
+		if _, ok := seen[value]; ok {
+			continue
+		}
+		seen[value] = struct{}{}
+		result = append(result, value)
+	}
+	if len(result) == 0 {
+		return nil, nil
+	}
+	return result, nil
+}
+
+func hasMetadataFlag(contextMap map[string][]string, key string) bool {
+	_, ok := contextMap[key]
+	return ok
+}
+
 type BOpts struct {
 	BuildID        string
 	Dockerfile     []byte
@@ -158,9 +239,15 @@ type BOpts struct {
 	NoCache        bool
 	Target         string
 	BuildArgs      map[string]string
+	BuildContexts  map[string]string
 	Secrets        map[string][]byte
 	SSH            []sshprovider.AgentConfig
+	Entitlements   []string
 	Attestations   map[string]string
+	AddHosts       []string
+	Network        string
+	ShmSize        string
+	Ulimits        []string
 	CacheIn        []string
 	CacheOut       []string
 	Outputs        []string
@@ -307,11 +394,23 @@ func NewBuildOpts(ctx context.Context, basePath string, contextMap map[string][]
 
 	labels := mapExtract(KeyLabels)
 	buildArgs := mapExtract(KeyBuildArgs)
+	buildContexts, err := extractBuildContexts(contextMap[KeyBuildContexts])
+	if err != nil {
+		return nil, err
+	}
 	secrets, err := mapExtractB64(KeySecrets)
 	if err != nil {
 		return nil, err
 	}
 	ssh := extractSSHAgentConfigs(contextMap[KeySSH])
+	network, err := normalizedNetworkMode(lastMetadataValue(contextMap[KeyNetwork]))
+	if err != nil {
+		return nil, err
+	}
+	entitlementValues, err := extractEntitlements(contextMap[KeyEntitlements], network, hasMetadataFlag(contextMap, KeyPrivileged))
+	if err != nil {
+		return nil, err
+	}
 	attestations, err := extractAttestations(contextMap)
 	if err != nil {
 		return nil, err
@@ -419,9 +518,15 @@ func NewBuildOpts(ctx context.Context, basePath string, contextMap map[string][]
 		Target:         target,
 		Labels:         labels,
 		BuildArgs:      buildArgs,
+		BuildContexts:  buildContexts,
 		Secrets:        secrets,
 		SSH:            ssh,
+		Entitlements:   entitlementValues,
 		Attestations:   attestations,
+		AddHosts:       contextMap[KeyAddHosts],
+		Network:        network,
+		ShmSize:        lastMetadataValue(contextMap[KeyShmSize]),
+		Ulimits:        contextMap[KeyUlimit],
 		CacheIn:        cacheIn,
 		CacheOut:       cacheOut,
 		Outputs:        outputs,
@@ -430,6 +535,33 @@ func NewBuildOpts(ctx context.Context, basePath string, contextMap map[string][]
 	}
 
 	return bopts, nil
+}
+
+func lastMetadataValue(values []string) string {
+	if len(values) == 0 {
+		return ""
+	}
+	return values[len(values)-1]
+}
+
+func (b *BOpts) dockerfileFrontendAttrs() map[string]string {
+	attrs := map[string]string{}
+	for name, source := range b.BuildContexts {
+		attrs["context:"+name] = source
+	}
+	if len(b.AddHosts) > 0 {
+		attrs["add-hosts"] = strings.Join(b.AddHosts, ",")
+	}
+	if b.Network != "" {
+		attrs["force-network-mode"] = b.Network
+	}
+	if b.ShmSize != "" {
+		attrs["shm-size"] = b.ShmSize
+	}
+	if len(b.Ulimits) > 0 {
+		attrs["ulimit"] = strings.Join(b.Ulimits, ",")
+	}
+	return attrs
 }
 
 func (b *BOpts) Context(parent context.Context) context.Context {

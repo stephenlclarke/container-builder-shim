@@ -154,6 +154,10 @@ func Build(ctx context.Context, opts *BOpts) error {
 	if opts.NoCache {
 		solveOpt.FrontendAttrs["no-cache"] = ""
 	}
+	for k, v := range opts.dockerfileFrontendAttrs() {
+		solveOpt.FrontendAttrs[k] = v
+	}
+	solveOpt.AllowedEntitlements = append(solveOpt.AllowedEntitlements, opts.Entitlements...)
 
 	for k, v := range opts.BuildArgs {
 		solveOpt.FrontendAttrs["build-arg:"+k] = v
