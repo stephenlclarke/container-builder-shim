@@ -76,6 +76,9 @@ func TestNewBuildOptsParsesCheckMetadata(t *testing.T) {
 	if !opts.Check {
 		t.Fatal("opts.Check = false, want true")
 	}
+	if got, want := string(opts.Dockerignore), DockerfileStaging; got != want {
+		t.Fatalf("Dockerignore = %q, want %q", got, want)
+	}
 }
 
 func TestNewBuildOptsParsesDockerfileFrontendMetadata(t *testing.T) {
@@ -102,6 +105,7 @@ func TestNewBuildOptsParsesDockerfileFrontendMetadata(t *testing.T) {
 		t.Fatalf("Entitlements = %#v, want %#v", got, want)
 	}
 	if got, want := opts.dockerfileFrontendAttrs(), map[string]string{
+		"filename":           ".com.apple.container/Dockerfile",
 		"context:shared":     "local:shared",
 		"context:base":       "docker-image://example/base:latest",
 		"add-hosts":          "build.local=127.0.0.1,cache.local=127.0.0.2",

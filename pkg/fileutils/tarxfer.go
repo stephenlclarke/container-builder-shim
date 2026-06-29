@@ -95,7 +95,7 @@ func (r *Receiver) Receive(ctx context.Context, dockerfile []byte, dockerignore 
 		_ = os.Remove(tarFile)
 	}
 
-	if len(dockerignore) > 0 {
+	if len(dockerfile) > 0 {
 		if err := stageDockerfiles(ctx, cacheDir, dockerfile, dockerignore); err != nil {
 			return "", err
 		}
@@ -342,8 +342,10 @@ func stageDockerfiles(ctx context.Context, cacheDir string, dockerfile []byte, d
 	}
 
 	dockerignorePath := filepath.Join(staging, "Dockerfile.dockerignore")
-	if err := os.WriteFile(dockerignorePath, dockerignore, 0o644); err != nil {
-		return err
+	if len(dockerignore) > 0 {
+		if err := os.WriteFile(dockerignorePath, dockerignore, 0o644); err != nil {
+			return err
+		}
 	}
 
 	return nil

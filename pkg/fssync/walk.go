@@ -20,6 +20,7 @@ import (
 	"context"
 	"fmt"
 	"io/fs"
+	"path/filepath"
 	"strings"
 
 	"github.com/google/uuid"
@@ -98,7 +99,6 @@ func (f *FS) Walk(ctx context.Context, target string, fn fs.WalkDirFunc) error {
 	if err != nil {
 		return err
 	}
-
 	id := uuid.NewString()
 	demux := stream.NewDemuxWithContext(cancellableCtx, id, stream.FilterByBuildID(id), func(any) {})
 	f.proxy.RegisterDemux(id, demux)
@@ -106,6 +106,11 @@ func (f *FS) Walk(ctx context.Context, target string, fn fs.WalkDirFunc) error {
 	followPaths := walkMeta.FollowPaths
 	if followPaths == "" {
 		followPaths = strings.Join(f.proxy.addedGlobs, ",")
+	}
+	syntheticFollowPaths := requestedSyntheticDockerfilePaths(followPaths)
+	dirName := walkMeta.DirName
+	if len(syntheticFollowPaths) > 0 {
+		dirName = "context"
 	}
 
 	packet := &api.BuildTransfer{
@@ -116,7 +121,7 @@ func (f *FS) Walk(ctx context.Context, target string, fn fs.WalkDirFunc) error {
 			"os":               "linux",
 			"stage":            "fssync",
 			"method":           "Walk",
-			"dir-name":         walkMeta.DirName,
+			"dir-name":         dirName,
 			"include-patterns": walkMeta.IncludePatterns,
 			"followpaths":      followPaths,
 			"mode":             string(walkMeta.Mode),
@@ -137,7 +142,7 @@ func (f *FS) Walk(ctx context.Context, target string, fn fs.WalkDirFunc) error {
 		checksum, err := receiver.Receive(ctx, f.proxy.dockerfile, f.proxy.dockerignore,
 			func(path string, d fs.DirEntry, walkErr error) error {
 				excluded, err := excludeMatcher.MatchesOrParentMatches(path)
-				if excluded {
+				if excluded && !keepsRequestedSyntheticPath(path, syntheticFollowPaths) {
 					return nil
 				}
 
@@ -157,6 +162,35 @@ func (f *FS) Walk(ctx context.Context, target string, fn fs.WalkDirFunc) error {
 	default:
 		return fmt.Errorf("unsupported walk mode: %q", walkMeta.Mode)
 	}
+}
+
+func requestedSyntheticDockerfilePaths(followPaths string) map[string]struct{} {
+	paths := map[string]struct{}{}
+	for _, path := range strings.Split(followPaths, ",") {
+		path = filepath.Clean(strings.TrimSpace(path))
+		switch path {
+		case filepath.Join(DockerfileStaging, "Dockerfile"),
+			filepath.Join(DockerfileStaging, "Dockerfile.dockerignore"):
+			paths[path] = struct{}{}
+		}
+	}
+	return paths
+}
+
+func keepsRequestedSyntheticPath(path string, requested map[string]struct{}) bool {
+	if len(requested) == 0 {
+		return false
+	}
+	path = filepath.Clean(path)
+	if _, ok := requested[path]; ok {
+		return true
+	}
+	for requestedPath := range requested {
+		if path == filepath.Dir(requestedPath) {
+			return true
+		}
+	}
+	return false
 }
 
 // RawFileInfo is the wire‑format for Walk (json mode).

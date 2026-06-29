@@ -104,8 +104,8 @@ const (
 const (
 	// Used to share built artifacts outside VM
 	GlobalExportPath = "/var/lib/container-builder-shim/exports"
-	// If KeyDockerignore argument is provided, Dockerfile and ignore file are
-	// staged at DockerfileStaging directory, and buildkit uses them.
+	// Dockerfile and optional ignore-file contents are staged at
+	// DockerfileStaging directory, and buildkit uses them.
 	DockerfileStaging = fssync.DockerfileStaging
 )
 
@@ -287,10 +287,8 @@ func NewBuildOpts(ctx context.Context, basePath string, contextMap map[string][]
 		return nil, err
 	}
 
-	dockerignoreBase64Bytes, ok := first(KeyDockerignore)
-
-	dockerignoreBytes := []byte{}
-	if ok {
+	dockerignoreBytes := []byte(DockerfileStaging)
+	if dockerignoreBase64Bytes, ok := first(KeyDockerignore); ok {
 		dockerignoreBytes, err = base64.StdEncoding.DecodeString(dockerignoreBase64Bytes)
 		if err != nil {
 			return nil, err
@@ -545,7 +543,9 @@ func lastMetadataValue(values []string) string {
 }
 
 func (b *BOpts) dockerfileFrontendAttrs() map[string]string {
-	attrs := map[string]string{}
+	attrs := map[string]string{
+		"filename": filepath.Join(DockerfileStaging, "Dockerfile"),
+	}
 	for name, source := range b.BuildContexts {
 		attrs["context:"+name] = source
 	}
