@@ -1,5 +1,6 @@
 # meta arg for final base image
 ARG FINAL_IMAGE=docker.io/moby/buildkit:v0.26.2
+ARG SOURCE_REPOSITORY=https://github.com/stephenlclarke/container-builder-shim
 
 FROM --platform=$BUILDPLATFORM golang:1.25-alpine AS build-base
 
@@ -31,10 +32,9 @@ RUN GOARCH=${TARGETARCH:-arm64} GOOS=${TARGETOS:-linux} CGO_ENABLED=0 go build \
 	-tags "osusergo netgo static_build seccomp" \
 	-o /usr/local/bin/container-builder-shim
 
-ARG SOURCE_REPOSITORY=https://github.com/stephenlclarke/container-builder-shim
-
 # Final Image
 FROM ${FINAL_IMAGE} AS final
+ARG SOURCE_REPOSITORY
 LABEL org.opencontainers.image.source=${SOURCE_REPOSITORY}
 RUN apk add --no-cache ca-certificates
 COPY --from=build-base /usr/local/bin/container-builder-shim /usr/local/bin/container-builder-shim
