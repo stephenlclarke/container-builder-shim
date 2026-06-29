@@ -77,3 +77,50 @@ func TestNewBuildOptsParsesCheckMetadata(t *testing.T) {
 		t.Fatal("opts.Check = false, want true")
 	}
 }
+
+func TestNewBuildOptsParsesDockerfileFrontendMetadata(t *testing.T) {
+	opts, err := NewBuildOpts(context.Background(), t.TempDir(), map[string][]string{
+		KeyBuildID:       {"build-id"},
+		KeyDockerfile:    {base64.StdEncoding.EncodeToString([]byte("FROM scratch\n"))},
+		KeyTag:           {"example/app:latest"},
+		KeyBuildContexts: {"shared=local:shared", "base=docker-image://example/base:latest"},
+		KeyEntitlements:  {"network.host"},
+		KeyAddHosts:      {"build.local=127.0.0.1", "cache.local=127.0.0.2"},
+		KeyNetwork:       {"host"},
+		KeyPrivileged:    {""},
+		KeyShmSize:       {"67108864"},
+		KeyUlimit:        {"nofile=1024:2048", "nproc=512"},
+	})
+	if err != nil {
+		t.Fatalf("NewBuildOpts() error = %v", err)
+	}
+
+	if got, want := opts.BuildContexts, map[string]string{"shared": "local:shared", "base": "docker-image://example/base:latest"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("BuildContexts = %#v, want %#v", got, want)
+	}
+	if got, want := opts.Entitlements, []string{"network.host", "security.insecure"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("Entitlements = %#v, want %#v", got, want)
+	}
+	if got, want := opts.dockerfileFrontendAttrs(), map[string]string{
+		"context:shared":     "local:shared",
+		"context:base":       "docker-image://example/base:latest",
+		"add-hosts":          "build.local=127.0.0.1,cache.local=127.0.0.2",
+		"force-network-mode": "host",
+		"shm-size":           "67108864",
+		"ulimit":             "nofile=1024:2048,nproc=512",
+	}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("dockerfileFrontendAttrs = %#v, want %#v", got, want)
+	}
+}
+
+func TestNewBuildOptsRejectsInvalidBuildNetworkMode(t *testing.T) {
+	_, err := NewBuildOpts(context.Background(), t.TempDir(), map[string][]string{
+		KeyBuildID:    {"build-id"},
+		KeyDockerfile: {base64.StdEncoding.EncodeToString([]byte("FROM scratch\n"))},
+		KeyTag:        {"example/app:latest"},
+		KeyNetwork:    {"bridge"},
+	})
+	if err != ErrInvalidNetworkMode {
+		t.Fatalf("NewBuildOpts() error = %v, want %v", err, ErrInvalidNetworkMode)
+	}
+}

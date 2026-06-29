@@ -28,4 +28,6 @@ var (
 	ErrNoBuildDirectives         = fmt.Errorf("no build directives")
 	ErrInvalidImageContextFormat = fmt.Errorf("image resolver: image name format is invalid")
 	ErrInvalidProgress           = fmt.Errorf("build arg progress value is invalid")
+	ErrInvalidBuildContext       = fmt.Errorf("build context must use name=source")
+	ErrInvalidNetworkMode        = fmt.Errorf("build network mode is invalid")
 )

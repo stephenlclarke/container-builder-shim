@@ -453,6 +453,9 @@ func dockerfileConvertOpt(ctx context.Context, bopts *BOpts, pl ocispecs.Platfor
 		// breaks due to lack of xattrs, so it is turned off
 		"local.differ": "none",
 	}
+	for k, v := range bopts.dockerfileFrontendAttrs() {
+		frontendOpt[k] = v
+	}
 
 	frontendInputs := map[string]*pb.Definition{}
 	for k, v := range states {
@@ -496,6 +499,10 @@ func dockerfileConvertOpt(ctx context.Context, bopts *BOpts, pl ocispecs.Platfor
 	convertOpt.Target = bopts.Target
 	convertOpt.MultiPlatformRequested = true
 	convertOpt.ImageResolveMode = llb.ResolveModePreferLocal
+	convertOpt.ExtraHosts = cl.ExtraHosts
+	convertOpt.NetworkMode = cl.NetworkMode
+	convertOpt.ShmSize = cl.ShmSize
+	convertOpt.Ulimits = cl.Ulimits
 
 	return convertOpt, frontendOpt, frontendInputs, nil
 }
