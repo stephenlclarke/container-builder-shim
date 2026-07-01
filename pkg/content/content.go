@@ -18,8 +18,10 @@ package content
 
 import (
 	"context"
+	"fmt"
 
 	contentx "github.com/containerd/containerd/v2/core/content"
+	"github.com/containerd/errdefs"
 
 	"github.com/google/uuid"
 
@@ -32,10 +34,9 @@ var (
 	_ stream.Stage   = &ContentStoreProxy{}
 )
 
-// A content store that proxies requests over the bidirectional grpc stream
-// Since buildkit only needs to read content, and never writes to content store,
-// this proxy only implements reader and status calls.
-// All writer calls are left unimplemented.
+// A content store that proxies requests over the bidirectional grpc stream.
+// BuildKit only needs to read committed content through this proxy. Ingestion
+// APIs return ErrNotImplemented instead of panicking if BuildKit probes them.
 type ContentStoreProxy struct {
 	contentx.Store
 	stream.UnimplementedBaseStage
@@ -74,6 +75,9 @@ func (r *ContentStoreProxy) request(ctx context.Context, packet *api.ImageTransf
 	}
 
 	imageTransfer := resp.GetImageTransfer()
+	if imageTransfer == nil {
+		return nil, fmt.Errorf("content store response missing image transfer")
+	}
 	return imageTransfer, nil
 }
 
@@ -81,19 +85,22 @@ func (r *ContentStoreProxy) String() string {
 	return "content-store"
 }
 
-// Writer methods NOT required for building images
 func (r *ContentStoreProxy) Writer(ctx context.Context, opts ...contentx.WriterOpt) (contentx.Writer, error) {
-	panic("unimplemented")
+	return nil, unsupportedContentIngestion("Writer")
 }
 
 func (r *ContentStoreProxy) Status(ctx context.Context, ref string) (contentx.Status, error) {
-	panic("unimplemented")
+	return contentx.Status{}, unsupportedContentIngestion("Status")
 }
 
 func (r *ContentStoreProxy) ListStatuses(ctx context.Context, filters ...string) ([]contentx.Status, error) {
-	panic("unimplemented")
+	return nil, unsupportedContentIngestion("ListStatuses")
 }
 
 func (r *ContentStoreProxy) Abort(ctx context.Context, ref string) error {
-	panic("unimplemented")
+	return unsupportedContentIngestion("Abort")
+}
+
+func unsupportedContentIngestion(method string) error {
+	return fmt.Errorf("content store %s is not supported by read-through proxy: %w", method, errdefs.ErrNotImplemented)
 }

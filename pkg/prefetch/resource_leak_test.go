@@ -54,7 +54,9 @@ func TestGoroutineLeakDetection(t *testing.T) {
 		go func(off int64) {
 			defer wg.Done()
 			buf := make([]byte, 512)
-			pf.ReadAt(buf, off)
+			if _, err := pf.ReadAt(buf, off); err != nil && err != io.EOF {
+				t.Errorf("ReadAt(%d) returned %v", off, err)
+			}
 		}(int64((i % 100) * 512))
 	}
 	wg.Wait()
@@ -88,9 +90,13 @@ func TestMemoryLeakDetection(t *testing.T) {
 		buf := make([]byte, 1024)
 		// perform some reads
 		for j := 0; j < 20; j++ {
-			pf.ReadAt(buf, int64((j%10)*1024))
+			if _, err := pf.ReadAt(buf, int64((j%10)*1024)); err != nil && err != io.EOF {
+				t.Fatalf("ReadAt returned %v", err)
+			}
 		}
-		pf.Close()
+		if err := pf.Close(); err != nil {
+			t.Fatalf("Close returned %v", err)
+		}
 	}
 	time.Sleep(10 * time.Millisecond)
 	runtime.GC()
@@ -133,9 +139,13 @@ func TestPreventRedundantReads(t *testing.T) {
 	}
 	defer pf.Close()
 	buf := make([]byte, 512)
-	pf.ReadAt(buf, 0)
+	if _, err := pf.ReadAt(buf, 0); err != nil && err != io.EOF {
+		t.Fatalf("first ReadAt returned %v", err)
+	}
 	first := ctr.calls.Load()
-	pf.ReadAt(buf, 0)
+	if _, err := pf.ReadAt(buf, 0); err != nil && err != io.EOF {
+		t.Fatalf("second ReadAt returned %v", err)
+	}
 	second := ctr.calls.Load()
 	if diff := second - first; diff != 0 {
 		t.Errorf("Unexpected underlying reads: got %d new calls", diff)

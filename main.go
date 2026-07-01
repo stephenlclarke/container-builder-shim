@@ -67,12 +67,7 @@ var app = &cobra.Command{
 			log.SetLevel(log.DebugLevel)
 		}
 		if !vsockMode {
-			socketDir := filepath.Dir(socketPath)
-			if err := os.MkdirAll(socketDir, os.ModeDir); err != nil {
-				return err
-			}
-			// make sure socket path is cleaned after previous runs
-			return os.RemoveAll(socketPath)
+			return prepareUnixSocket(socketPath)
 		}
 		if debug {
 			go func() {
@@ -97,13 +92,11 @@ var app = &cobra.Command{
 		go func() {
 			config := buildkit.DefaultConfig
 			for _, rm := range registryMirrors {
-				parts := strings.Split(rm, "=")
-				if len(parts) != 2 {
-					errCh <- fmt.Errorf("invalid registry mirror specification: %s", rm)
+				key, value, err := parseRegistryMirror(rm)
+				if err != nil {
+					errCh <- err
 					return
 				}
-				key := parts[0]
-				value := parts[1]
 
 				var rc buildkit.RegistryConfig
 				var ok bool
@@ -143,6 +136,26 @@ var app = &cobra.Command{
 		log.Errorf("Exiting %v", err)
 		return err
 	},
+}
+
+func prepareUnixSocket(socketPath string) error {
+	socketDir := filepath.Dir(socketPath)
+	if err := os.MkdirAll(socketDir, 0o755); err != nil {
+		return err
+	}
+	// make sure socket path is cleaned after previous runs
+	return os.RemoveAll(socketPath)
+}
+
+func parseRegistryMirror(spec string) (string, string, error) {
+	key, value, ok := strings.Cut(spec, "=")
+	if !ok {
+		return "", "", fmt.Errorf("invalid registry mirror specification: %s", spec)
+	}
+	if key == "" {
+		return "", "", fmt.Errorf("invalid registry mirror specification: %s", spec)
+	}
+	return key, value, nil
 }
 
 func disableQemu() {

@@ -64,6 +64,9 @@ func (r *ContentStoreProxy) Delete(ctx context.Context, dgst digest.Digest) erro
 		},
 	}
 	resp, err := r.request(ctx, req)
+	if err != nil {
+		return err
+	}
 	if err, ok := resp.Metadata["error"]; ok {
 		return fmt.Errorf("%s", err)
 	}

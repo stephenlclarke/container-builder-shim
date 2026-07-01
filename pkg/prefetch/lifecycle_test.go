@@ -194,7 +194,9 @@ func TestParallelReadThrottling(t *testing.T) {
 		go func(off int64) {
 			defer wg.Done()
 			buf := make([]byte, 256)
-			pf.ReadAt(buf, off)
+			if _, err := pf.ReadAt(buf, off); err != nil && err != io.EOF {
+				t.Errorf("ReadAt(%d) returned %v", off, err)
+			}
 		}(int64((i % 16) * 256))
 	}
 	wg.Wait()

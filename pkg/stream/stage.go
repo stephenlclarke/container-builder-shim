@@ -18,7 +18,6 @@ package stream
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"sync"
 	"time"
@@ -40,8 +39,8 @@ type Stage interface {
 	getRecvCh() chan *api.ClientStream
 	setRecvCh(chan *api.ClientStream)
 
-	process(*api.ClientStream)
-	run(context.Context) error
+	Process(*api.ClientStream)
+	Run(context.Context) error
 }
 
 type UnimplementedBaseStage struct {
@@ -67,12 +66,12 @@ func (b *UnimplementedBaseStage) setRecvCh(c chan *api.ClientStream) {
 	b.recvCh = c
 }
 
-// process forwards the packet to the stage-specific goroutine.
-func (b *UnimplementedBaseStage) process(c *api.ClientStream) {
+// Process forwards the packet to the stage-specific goroutine.
+func (b *UnimplementedBaseStage) Process(c *api.ClientStream) {
 	b.recvCh <- c
 }
 
-func (b *UnimplementedBaseStage) run(ctx context.Context) error {
+func (b *UnimplementedBaseStage) Run(ctx context.Context) error {
 	for {
 		select {
 		case <-ctx.Done():
@@ -93,12 +92,10 @@ func (b *UnimplementedBaseStage) run(ctx context.Context) error {
 				}).WithError(ErrNoHandlerFound).Debug("dropping packet with no matching handler")
 
 				if bf := c.GetBuildTransfer(); bf != nil {
-					blob, _ := json.MarshalIndent(bf.GetMetadata(), "", " ")
-					fmt.Println(string(blob))
+					logrus.WithField("metadata", bf.GetMetadata()).Debug("dropped build transfer metadata")
 				}
 				if im := c.GetImageTransfer(); im != nil {
-					blob, _ := json.MarshalIndent(im.GetMetadata(), "", " ")
-					fmt.Println(string(blob))
+					logrus.WithField("metadata", im.GetMetadata()).Debug("dropped image transfer metadata")
 				}
 				continue
 			}

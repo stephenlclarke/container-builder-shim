@@ -23,6 +23,9 @@ import (
 	"testing"
 
 	"github.com/containerd/platforms"
+	"github.com/moby/buildkit/client/llb"
+	"github.com/moby/buildkit/frontend/dockerfile/dockerfile2llb"
+	"github.com/moby/buildkit/frontend/dockerui"
 	"github.com/opencontainers/go-digest"
 	ocispecs "github.com/opencontainers/image-spec/specs-go/v1"
 
@@ -66,6 +69,37 @@ func (m *testMockStream) Recv() (*api.ClientStream, error) {
 
 func (m *testMockStream) Context() context.Context {
 	return m.ctx
+}
+
+func TestSetDockerfileSourceMap(t *testing.T) {
+	state := llb.Scratch()
+	sourceMap := llb.NewSourceMap(&state, "Dockerfile", "dockerfile", []byte("FROM scratch\n"))
+	opt := dockerfile2llb.ConvertOpt{}
+
+	if err := setDockerfileSourceMap(&opt, &dockerui.Source{SourceMap: sourceMap}); err != nil {
+		t.Fatalf("setDockerfileSourceMap returned error: %v", err)
+	}
+	if opt.SourceMap != sourceMap {
+		t.Fatal("setDockerfileSourceMap did not attach source map")
+	}
+}
+
+func TestSetDockerfileSourceMapRejectsMissingSource(t *testing.T) {
+	for name, source := range map[string]*dockerui.Source{
+		"nil source":     nil,
+		"nil source map": {},
+	} {
+		t.Run(name, func(t *testing.T) {
+			opt := dockerfile2llb.ConvertOpt{}
+
+			if err := setDockerfileSourceMap(&opt, source); err == nil {
+				t.Fatal("setDockerfileSourceMap returned nil error")
+			}
+			if opt.SourceMap != nil {
+				t.Fatal("setDockerfileSourceMap attached source map on error")
+			}
+		})
+	}
 }
 
 // testInterceptingResolver captures resolver calls and provides mock responses
@@ -130,7 +164,9 @@ func (m *testMockStream) handleResolverRequests(interceptor *testInterceptingRes
 	}()
 }
 
-func newTestInterceptingResolver(ctx context.Context) (*testInterceptingResolver, func(), error) {
+func newTestInterceptingResolver(t *testing.T, ctx context.Context) (*testInterceptingResolver, func(), error) {
+	t.Helper()
+
 	// Create mock stream
 	mockStr := newTestMockStream(ctx)
 
@@ -152,7 +188,9 @@ func newTestInterceptingResolver(ctx context.Context) (*testInterceptingResolver
 
 	// Start pipeline in background
 	go func() {
-		pipeline.Run()
+		if err := pipeline.Run(); err != nil && err != context.Canceled {
+			t.Errorf("pipeline.Run returned %v", err)
+		}
 	}()
 
 	cleanup := func() {
@@ -344,6 +382,32 @@ func TestGlobalArgs(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestExtractSSHAgentConfigs(t *testing.T) {
+	configs := extractSSHAgentConfigs([]string{"default", "git=/tmp/ssh-agent.sock", "/tmp/default-agent.sock"})
+
+	if got, want := len(configs), 3; got != want {
+		t.Fatalf("len(opts.SSH) = %d, want %d", got, want)
+	}
+	if got, want := configs[0].ID, "default"; got != want {
+		t.Fatalf("opts.SSH[0].ID = %q, want %q", got, want)
+	}
+	if len(configs[0].Paths) != 0 {
+		t.Fatalf("opts.SSH[0].Paths = %v, want empty", configs[0].Paths)
+	}
+	if got, want := configs[1].ID, "git"; got != want {
+		t.Fatalf("opts.SSH[1].ID = %q, want %q", got, want)
+	}
+	if got, want := configs[1].Paths, []string{"/tmp/ssh-agent.sock"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("opts.SSH[1].Paths = %v, want %v", got, want)
+	}
+	if got, want := configs[2].ID, "default"; got != want {
+		t.Fatalf("opts.SSH[2].ID = %q, want %q", got, want)
+	}
+	if got, want := configs[2].Paths, []string{"/tmp/default-agent.sock"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("opts.SSH[2].Paths = %v, want %v", got, want)
 	}
 }
 
@@ -716,7 +780,7 @@ LABEL maintainer="${MAINTAINER}" \
 			defer cancel()
 
 			// Create intercepting resolver
-			interceptor, cleanup, err := newTestInterceptingResolver(ctx)
+			interceptor, cleanup, err := newTestInterceptingResolver(t, ctx)
 			if err != nil {
 				t.Fatalf("Failed to create intercepting resolver: %v", err)
 			}

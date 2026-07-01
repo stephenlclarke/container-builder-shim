@@ -46,12 +46,12 @@ type StdioProxy struct {
 }
 
 func NewStdioProxy(ctx context.Context, tty bool) (*StdioProxy, error) {
-	c, s, err := console.NewPty()
-	if err != nil {
-		return nil, err
-	}
 	proxy := new(StdioProxy)
 	if tty {
+		c, s, err := console.NewPty()
+		if err != nil {
+			return nil, err
+		}
 		proxy.console = c
 		proxy.s = s
 	}
@@ -96,10 +96,12 @@ func (r *StdioProxy) Filter(c *api.ClientStream) error {
 				return stream.ErrNotATTY
 			}
 			if termCmd.Rows > 0 && termCmd.Cols > 0 {
-				r.console.Resize(console.WinSize{
+				if err := r.console.Resize(console.WinSize{
 					Height: uint16(termCmd.Rows),
 					Width:  uint16(termCmd.Cols),
-				})
+				}); err != nil {
+					return err
+				}
 			}
 			return nil
 		case "ack":

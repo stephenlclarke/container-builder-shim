@@ -30,7 +30,6 @@ import (
 
 type racyReaderAt struct {
 	data          []byte
-	mutex         sync.Mutex
 	readCount     atomic.Int64
 	errorRate     float64
 	maxDelay      time.Duration
@@ -283,6 +282,7 @@ func TestPrefetcherGrowingFile(t *testing.T) {
 	eofCount := atomic.Int32{}
 
 	go func() {
+		defer close(done)
 		for {
 			currentSize := reader.GetCurrentSize()
 
@@ -298,7 +298,7 @@ func TestPrefetcherGrowingFile(t *testing.T) {
 			default:
 				t.Errorf("Unexpected error: %v at offset %d (current size: %d)",
 					err, offset, currentSize)
-				break
+				return
 			}
 
 			if offset >= maxSize || currentSize >= maxSize {
@@ -307,7 +307,6 @@ func TestPrefetcherGrowingFile(t *testing.T) {
 
 			time.Sleep(growDelay / 2)
 		}
-		close(done)
 	}()
 
 	select {

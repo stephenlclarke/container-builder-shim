@@ -2,6 +2,7 @@ name: Container Builder Shim - PR/merge build
 
 permissions:
   contents: read
+  pull-requests: read
 
 on:
   pull_request:
@@ -11,9 +12,71 @@ on:
       - main
       - release/*
 
+concurrency:
+  group: build-${{ github.workflow }}-${{ github.head_ref || github.ref_name }}
+  cancel-in-progress: true
+
 jobs:
+  changes:
+    name: Detect Relevant Changes
+    runs-on: ubuntu-latest
+    outputs:
+      heavy: ${{ steps.filter.outputs.heavy }}
+    steps:
+      - name: Checkout for push diff
+        if: github.event_name == 'push'
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          fetch-depth: 0
+
+      - name: Classify changed files
+        id: filter
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          changed_files="${RUNNER_TEMP}/changed-files.txt"
+
+          case "${GITHUB_EVENT_NAME}" in
+            pull_request)
+              gh api "repos/${GITHUB_REPOSITORY}/pulls/${{ github.event.pull_request.number }}/files" \
+                --paginate \
+                --jq '.[].filename' > "$changed_files"
+              ;;
+            push)
+              before="${{ github.event.before }}"
+              after="${GITHUB_SHA}"
+              if [[ "$before" =~ ^0+$ ]]; then
+                git diff-tree --no-commit-id --name-only -r "$after" > "$changed_files"
+              else
+                git diff --name-only "$before" "$after" > "$changed_files"
+              fi
+              ;;
+            *)
+              printf 'heavy=true\n' >> "$GITHUB_OUTPUT"
+              exit 0
+              ;;
+          esac
+
+          heavy=false
+          while IFS= read -r path; do
+            case "$path" in
+              *.md|docs/*)
+                ;;
+              *)
+                heavy=true
+                break
+                ;;
+            esac
+          done < "$changed_files"
+
+          printf 'heavy=%s\n' "$heavy" >> "$GITHUB_OUTPUT"
+
   build:
     name: Invoke build
+    needs: changes
+    if: needs.changes.outputs.heavy == 'true'
     uses: ./.github/workflows/common.yml
   image: 
     runs-on: ubuntu-latest
@@ -34,7 +97,10 @@ jobs:
         with:
           platforms: linux/arm64
           push: false
-          tags: ghcr.io/apple/container-builder-shim/builder:test
+          tags: ghcr.io/${{ github.repository_owner }}/container-builder-shim/builder:test
+          build-args: |
+            GIT_TAG=${{ github.sha }}
+            SOURCE_REPOSITORY=https://github.com/${{ github.repository }}
           outputs: type=oci,dest=container-builder-shim.tar
       - name: Save artifacts
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2

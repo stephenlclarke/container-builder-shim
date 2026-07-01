@@ -45,17 +45,17 @@ func (t *testStage) String() string {
 	return t.name
 }
 
-func (t *testStage) process(c *api.ClientStream) {
+func (t *testStage) Process(c *api.ClientStream) {
 	t.processed <- c
 }
 
-func (t *testStage) run(ctx context.Context) error {
+func (t *testStage) Run(ctx context.Context) error {
 	for {
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
 		case pkt := <-t.getRecvCh():
-			t.process(pkt)
+			t.Process(pkt)
 		}
 	}
 }

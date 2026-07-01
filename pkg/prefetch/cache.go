@@ -204,17 +204,6 @@ func (c *chunkCache) findOverlapsRecursive(node *intervalNode, start, end int64,
 	}
 }
 
-func (c *chunkCache) removeChunk(index int64) {
-	c.mutex.Lock()
-	defer c.mutex.Unlock()
-
-	delete(c.chunkMap, index)
-
-	if len(c.chunkMap) == 0 {
-		c.intervalTree = nil
-	}
-}
-
 func (c *chunkCache) evictOldest() {
 	if len(c.chunkMap) <= c.maxCacheSize-c.evictCount {
 		return

@@ -82,7 +82,9 @@ func Start(ctx context.Context, config BuildkitdConfig, args ...string) error {
 	}()
 	select {
 	case <-ctx.Done():
-		proc.Signal(syscall.SIGTERM)
+		if err := proc.Signal(syscall.SIGTERM); err != nil {
+			log.WithError(err).Warn("failed to terminate buildkit subprocess")
+		}
 		return ctx.Err()
 	case err := <-errCh:
 		return err

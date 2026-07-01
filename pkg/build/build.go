@@ -25,8 +25,8 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/containerd/containerd/platforms"
 	"github.com/containerd/containerd/v2/core/content"
+	"github.com/containerd/platforms"
 	"github.com/moby/buildkit/client"
 	"github.com/moby/buildkit/cmd/buildctl/build"
 	"github.com/moby/buildkit/session"
@@ -58,65 +58,69 @@ func Build(ctx context.Context, opts *BOpts) error {
 	}
 	defer buildkit.Close()
 
-	exports, err := parseOutput(opts.Outputs)
-	if err != nil {
-		return err
-	}
-
-	if len(exports) == 0 {
-		exports = append(exports, client.ExportEntry{
-			Type:  "oci",
-			Attrs: map[string]string{},
-		})
-	}
-
-	outputPath := filepath.Join(GlobalExportPath, opts.BuildID, "out.tar")
-	f, err := os.CreateTemp("", "")
-	if err != nil {
-		return err
-	}
-
-	// IMPORTANT:
-	// gRPC's buffer pool allocates new buffers indefinitely when writing over any network medium.
-	//
-	// This issue is specifically observed when writing over network or virtiofs,
-	// potentially due to underlying OS/kernel behaviors affecting heap ref-counting.
-	// Direct disk writes do NOT trigger excessive bufPool allocations, likely due to
-	// immediate heap release. As a workaround, we write grpc buffers directly to disk
-	// first, then perform a separate io.Copy from disk to virtiofs to avoid the issue.
-	wf := &wrappedWriteCloser{
-		f:    f,
-		dest: outputPath,
-	}
-
 	var exportsWithOutput []client.ExportEntry
-	for _, export := range exports {
-		if export.Attrs == nil {
-			export.Attrs = map[string]string{}
+	if !opts.Check {
+		exports, err := parseOutput(opts.Outputs)
+		if err != nil {
+			return err
 		}
 
-		switch export.Type {
-		case client.ExporterLocal:
-			localDest := filepath.Join(GlobalExportPath, opts.BuildID, "local")
-			os.MkdirAll(localDest, 0o755)
-			if export.OutputDir == "" {
-				export.OutputDir = localDest
-			}
-			export.Attrs["dest"] = localDest
-		default: // oci, tar
-			export.Output = func(map[string]string) (io.WriteCloser, error) {
-				return wf, nil
-			}
-			export.Attrs["output"] = filepath.Join(GlobalExportPath, opts.BuildID, "out.tar")
+		if len(exports) == 0 {
+			exports = append(exports, client.ExportEntry{
+				Type:  "oci",
+				Attrs: map[string]string{},
+			})
 		}
 
-		if _, ok := export.Attrs["name"]; !ok {
-			export.Attrs["name"] = opts.Tag
+		outputPath := filepath.Join(GlobalExportPath, opts.BuildID, "out.tar")
+		f, err := os.CreateTemp("", "")
+		if err != nil {
+			return err
 		}
-		if _, ok := export.Attrs["annotation-index-descriptor.com.apple.containerization.image.name"]; !ok {
-			export.Attrs["annotation-index-descriptor.com.apple.containerization.image.name"] = opts.Tag
+
+		// IMPORTANT:
+		// gRPC's buffer pool allocates new buffers indefinitely when writing over any network medium.
+		//
+		// This issue is specifically observed when writing over network or virtiofs,
+		// potentially due to underlying OS/kernel behaviors affecting heap ref-counting.
+		// Direct disk writes do NOT trigger excessive bufPool allocations, likely due to
+		// immediate heap release. As a workaround, we write grpc buffers directly to disk
+		// first, then perform a separate io.Copy from disk to virtiofs to avoid the issue.
+		wf := &wrappedWriteCloser{
+			f:    f,
+			dest: outputPath,
 		}
-		exportsWithOutput = append(exportsWithOutput, export)
+
+		for _, export := range exports {
+			if export.Attrs == nil {
+				export.Attrs = map[string]string{}
+			}
+
+			switch export.Type {
+			case client.ExporterLocal:
+				localDest := filepath.Join(GlobalExportPath, opts.BuildID, "local")
+				if err := os.MkdirAll(localDest, 0o755); err != nil {
+					return err
+				}
+				if export.OutputDir == "" {
+					export.OutputDir = localDest
+				}
+				export.Attrs["dest"] = localDest
+			default: // oci, tar
+				export.Output = func(map[string]string) (io.WriteCloser, error) {
+					return wf, nil
+				}
+				export.Attrs["output"] = filepath.Join(GlobalExportPath, opts.BuildID, "out.tar")
+			}
+
+			if _, ok := export.Attrs["name"]; !ok {
+				export.Attrs["name"] = opts.Tag
+			}
+			if _, ok := export.Attrs["annotation-index-descriptor.com.apple.containerization.image.name"]; !ok {
+				export.Attrs["annotation-index-descriptor.com.apple.containerization.image.name"] = opts.Tag
+			}
+			exportsWithOutput = append(exportsWithOutput, export)
+		}
 	}
 
 	cacheImports, err := build.ParseImportCache(opts.CacheIn)
@@ -143,13 +147,13 @@ func Build(ctx context.Context, opts *BOpts) error {
 		KeyContentStoreName: opts.ContentStore,
 	}
 
-	if len(opts.Dockerignore) > 0 {
-		solveOpt.FrontendAttrs["filename"] = filepath.Join(DockerfileStaging, "Dockerfile")
-	}
-
 	if opts.NoCache {
 		solveOpt.FrontendAttrs["no-cache"] = ""
 	}
+	for k, v := range opts.dockerfileFrontendAttrs() {
+		solveOpt.FrontendAttrs[k] = v
+	}
+	solveOpt.AllowedEntitlements = append(solveOpt.AllowedEntitlements, opts.Entitlements...)
 
 	for k, v := range opts.BuildArgs {
 		solveOpt.FrontendAttrs["build-arg:"+k] = v
@@ -170,6 +174,9 @@ func Build(ctx context.Context, opts *BOpts) error {
 	}
 	for k, v := range opts.Labels {
 		solveOpt.FrontendAttrs["label:"+k] = v
+	}
+	for k, v := range opts.Attestations {
+		solveOpt.FrontendAttrs[k] = v
 	}
 	solveOpt.Frontend = "dockerfile.v1"
 

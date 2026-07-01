@@ -64,6 +64,15 @@ func btPacket(data []byte, complete bool, meta map[string]string) *api.ClientStr
 	return &api.ClientStream{PacketType: &api.ClientStream_BuildTransfer{BuildTransfer: bt}}
 }
 
+func containsPath(paths []string, path string) bool {
+	for _, candidate := range paths {
+		if candidate == path {
+			return true
+		}
+	}
+	return false
+}
+
 func TestReceiver_Receive_Success(t *testing.T) {
 	archive, err := makeTar()
 	if err != nil {
@@ -111,6 +120,55 @@ func TestReceiver_Receive_Success(t *testing.T) {
 	cacheDir := filepath.Join(tmpDir, checksum)
 	if fi, err := os.Stat(filepath.Join(cacheDir, "file1")); err != nil || !fi.Mode().IsRegular() {
 		t.Fatalf("extracted file missing or not regular: %v", err)
+	}
+}
+
+func TestReceiver_Receive_StagesDockerfileWithoutSourceDockerignore(t *testing.T) {
+	archive, err := makeTar()
+	if err != nil {
+		t.Fatalf("makeTar: %v", err)
+	}
+	hashBytes := sha256.Sum256(archive)
+	hash := hex.EncodeToString(hashBytes[:])
+	header := archive[:512]
+	body := archive[512:]
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	demux := newDemux(ctx)
+
+	_ = demux.Accept(btPacket([]byte{}, false, map[string]string{"hash": hash}))
+	_ = demux.Accept(btPacket(header, false, nil))
+	_ = demux.Accept(btPacket(body, true, nil))
+
+	tmpDir := t.TempDir()
+	r := NewTarReceiver(tmpDir, demux)
+
+	var visited []string
+	walkFn := func(p string, _ fs.DirEntry, _ error) error {
+		visited = append(visited, p)
+		return nil
+	}
+
+	checksum, err := r.Receive(ctx, []byte("FROM scratch\n"), []byte(DockerfileStaging), walkFn)
+	if err != nil {
+		t.Fatalf("Receive returned error: %v", err)
+	}
+	if checksum != hash {
+		t.Fatalf("checksum mismatch: want %s, got %s", hash, checksum)
+	}
+
+	cacheDir := filepath.Join(tmpDir, checksum)
+	for _, path := range []string{
+		filepath.Join(cacheDir, DockerfileStaging, "Dockerfile"),
+		filepath.Join(cacheDir, DockerfileStaging, "Dockerfile.dockerignore"),
+	} {
+		if fi, err := os.Stat(path); err != nil || !fi.Mode().IsRegular() {
+			t.Fatalf("staged file missing or not regular at %s: %v", path, err)
+		}
+	}
+	if !containsPath(visited, filepath.Join(DockerfileStaging, "Dockerfile")) {
+		t.Fatalf("staged Dockerfile was not walked: %v", visited)
 	}
 }
 

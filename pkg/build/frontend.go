@@ -38,6 +38,7 @@ import (
 	"github.com/moby/buildkit/frontend/dockerfile/shell"
 	"github.com/moby/buildkit/frontend/dockerui"
 	gateway "github.com/moby/buildkit/frontend/gateway/client"
+	"github.com/moby/buildkit/frontend/subrequests/lint"
 	"github.com/moby/buildkit/solver/pb"
 	"github.com/moby/buildkit/util/progress/progresswriter"
 	ocispecs "github.com/opencontainers/image-spec/specs-go/v1"
@@ -50,6 +51,10 @@ func frontend(ctx context.Context, c gateway.Client) (*gateway.Result, error) {
 	bopts, err := newBOptsFromContext(ctx)
 	if err != nil {
 		return nil, err
+	}
+
+	if bopts.Check {
+		return checkBuild(ctx, bopts, c)
 	}
 
 	res := gateway.NewResult()
@@ -105,6 +110,63 @@ func frontend(ctx context.Context, c gateway.Client) (*gateway.Result, error) {
 	}
 	res.AddMeta(exptypes.ExporterPlatformsKey, dt)
 	return res, nil
+}
+
+func checkBuild(ctx context.Context, bopts *BOpts, c gateway.Client) (*gateway.Result, error) {
+	pl := bopts.Platforms[0]
+	results, res, err := checkPlatform(ctx, bopts, pl, c)
+	if err != nil {
+		return nil, err
+	}
+
+	if bopts.ProgressWriter != nil {
+		if text := res.Metadata["result.txt"]; len(text) > 0 {
+			progresswriter.Write(bopts.ProgressWriter, string(text), nil)
+		}
+		if results.Error != nil {
+			buf := bytes.NewBuffer(nil)
+			if len(results.Warnings) > 0 {
+				buf.WriteByte('\n')
+			}
+			results.PrintErrorTo(buf, nil)
+			progresswriter.Write(bopts.ProgressWriter, buf.String(), nil)
+		} else if len(results.Warnings) == 0 {
+			progresswriter.Write(bopts.ProgressWriter, "Check complete, no warnings found.\n", nil)
+		}
+	}
+
+	if len(results.Warnings) > 0 || results.Error != nil {
+		return nil, fmt.Errorf("build check failed")
+	}
+	return res, nil
+}
+
+func checkPlatform(ctx context.Context, bopts *BOpts, pl ocispecs.Platform, c gateway.Client) (*lint.LintResults, *gateway.Result, error) {
+	states, err := resolveStates(ctx, bopts, pl, func(format string, params ...interface{}) {
+		if bopts.ProgressWriter != nil {
+			msg := fmt.Sprintf(format, params...)
+			progresswriter.Write(bopts.ProgressWriter, msg, nil)
+		}
+	})
+	if err != nil {
+		return nil, nil, err
+	}
+
+	convertOpt, _, _, err := dockerfileConvertOpt(ctx, bopts, pl, c, states)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	results, err := dockerfile2llb.DockerfileLint(ctx, bopts.Dockerfile, convertOpt)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	res, err := results.ToResult(nil)
+	if err != nil {
+		return nil, nil, err
+	}
+	return results, res, nil
 }
 
 type stateMeta struct {
@@ -300,57 +362,11 @@ func (fc *frontendClient) Inputs(ctx context.Context) (map[string]llb.State, err
 }
 
 func solvePlatform(ctx context.Context, bopts *BOpts, pl ocispecs.Platform, c gateway.Client, states map[string]stateMeta) (gateway.Reference, []byte, error) {
-	capset := pb.Caps.CapSet(utils.Caps().All())
-	frontendOpt := map[string]string{
-		// In v0.21.0, this was being defaulted to "true"
-		// We want to disable it, as it could break fssync
-		"local.metadatatransfer": "false",
-
-		// https://github.com/moby/buildkit/pull/5899 introduced a change
-		// that ignore apple's xattrs while diffing. This breaks differ
-		// breaks due to lack of xattrs, so it is turned off
-		"local.differ": "none",
-	}
-
-	frontendInputs := map[string]*pb.Definition{}
-	for k, v := range states {
-		frontendOpt["context:"+k] = "input:" + k
-		frontendOpt["input-metadata:"+k] = string(v.imgMeta)
-
-		def, err := v.state.Marshal(ctx)
-		if err != nil {
-			return nil, nil, err
-		}
-		frontendInputs[k] = def.ToPB()
-	}
-	cl, err := dockerui.NewClient(&frontendClient{
-		Client:         c,
-		frontendInputs: frontendInputs,
-		frontendOpt:    frontendOpt,
-	})
+	convertOpt, frontendOpt, frontendInputs, err := dockerfileConvertOpt(ctx, bopts, pl, c, states)
 	if err != nil {
 		return nil, nil, err
 	}
 
-	_, err = cl.ReadEntrypoint(ctx, "dockerfile")
-
-	convertOpt := dockerfile2llb.ConvertOpt{
-		TargetPlatform: &pl,
-		MetaResolver:   bopts.Resolver,
-		LLBCaps:        &capset,
-		Client:         cl,
-	}
-
-	convertOpt.BuildPlatforms = bopts.BuildPlatforms
-	convertOpt.TargetPlatforms = bopts.Platforms
-	convertOpt.BuildArgs = bopts.BuildArgs
-	convertOpt.Labels = bopts.Labels
-	convertOpt.Target = bopts.Target
-	convertOpt.MultiPlatformRequested = true
-	convertOpt.ImageResolveMode = llb.ResolveModePreferLocal
-
-	// 3rd return value is a list of SBOMTargets for this Image. Since container
-	// doesn't support this feature, we can safely ignore it for now
 	result, err := dockerfile2llb.Dockerfile2LLB(ctx, bopts.Dockerfile, convertOpt)
 	if err != nil {
 		return nil, nil, err
@@ -361,13 +377,8 @@ func solvePlatform(ctx context.Context, bopts *BOpts, pl ocispecs.Platform, c ga
 		return nil, nil, err
 	}
 
-	platform, err := result.State.GetPlatform(ctx)
-	if err != nil {
+	if _, err := result.State.GetPlatform(ctx); err != nil {
 		return nil, nil, err
-	}
-
-	if platform == nil {
-		platform = &pl
 	}
 
 	r, err := c.Solve(ctx, gateway.SolveRequest{
@@ -428,6 +439,80 @@ func solvePlatform(ctx context.Context, bopts *BOpts, pl ocispecs.Platform, c ga
 		return nil, nil, err
 	}
 	return ref, cfgJSON, nil
+}
+
+func dockerfileConvertOpt(ctx context.Context, bopts *BOpts, pl ocispecs.Platform, c gateway.Client, states map[string]stateMeta) (dockerfile2llb.ConvertOpt, map[string]string, map[string]*pb.Definition, error) {
+	capset := pb.Caps.CapSet(utils.Caps().All())
+	frontendOpt := map[string]string{
+		// In v0.21.0, this was being defaulted to "true"
+		// We want to disable it, as it could break fssync
+		"local.metadatatransfer": "false",
+
+		// https://github.com/moby/buildkit/pull/5899 introduced a change
+		// that ignore apple's xattrs while diffing. This breaks differ
+		// breaks due to lack of xattrs, so it is turned off
+		"local.differ": "none",
+	}
+	for k, v := range bopts.dockerfileFrontendAttrs() {
+		frontendOpt[k] = v
+	}
+
+	frontendInputs := map[string]*pb.Definition{}
+	for k, v := range states {
+		frontendOpt["context:"+k] = "input:" + k
+		frontendOpt["input-metadata:"+k] = string(v.imgMeta)
+
+		def, err := v.state.Marshal(ctx)
+		if err != nil {
+			return dockerfile2llb.ConvertOpt{}, nil, nil, err
+		}
+		frontendInputs[k] = def.ToPB()
+	}
+	cl, err := dockerui.NewClient(&frontendClient{
+		Client:         c,
+		frontendInputs: frontendInputs,
+		frontendOpt:    frontendOpt,
+	})
+	if err != nil {
+		return dockerfile2llb.ConvertOpt{}, nil, nil, err
+	}
+
+	source, err := cl.ReadEntrypoint(ctx, "dockerfile")
+	if err != nil {
+		return dockerfile2llb.ConvertOpt{}, nil, nil, err
+	}
+
+	convertOpt := dockerfile2llb.ConvertOpt{
+		TargetPlatform: &pl,
+		MetaResolver:   bopts.Resolver,
+		LLBCaps:        &capset,
+		Client:         cl,
+	}
+	if err := setDockerfileSourceMap(&convertOpt, source); err != nil {
+		return dockerfile2llb.ConvertOpt{}, nil, nil, err
+	}
+
+	convertOpt.BuildPlatforms = bopts.BuildPlatforms
+	convertOpt.TargetPlatforms = bopts.Platforms
+	convertOpt.BuildArgs = bopts.BuildArgs
+	convertOpt.Labels = bopts.Labels
+	convertOpt.Target = bopts.Target
+	convertOpt.MultiPlatformRequested = true
+	convertOpt.ImageResolveMode = llb.ResolveModePreferLocal
+	convertOpt.ExtraHosts = cl.ExtraHosts
+	convertOpt.NetworkMode = cl.NetworkMode
+	convertOpt.ShmSize = cl.ShmSize
+	convertOpt.Ulimits = cl.Ulimits
+
+	return convertOpt, frontendOpt, frontendInputs, nil
+}
+
+func setDockerfileSourceMap(convertOpt *dockerfile2llb.ConvertOpt, source *dockerui.Source) error {
+	if source == nil || source.SourceMap == nil {
+		return fmt.Errorf("dockerfile source map missing")
+	}
+	convertOpt.SourceMap = source.SourceMap
+	return nil
 }
 
 // Pre-seed external COPY --from=<image> refs as named contexts, so BuildKit

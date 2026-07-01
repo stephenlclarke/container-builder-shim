@@ -64,6 +64,16 @@ func TestRead_IsWriteOnly(t *testing.T) {
 	}
 }
 
+func TestNewStdioProxy_PlainDoesNotAllocateTTY(t *testing.T) {
+	proxy, err := NewStdioProxy(context.Background(), false)
+	if err != nil {
+		t.Fatalf("NewStdioProxy returned error: %v", err)
+	}
+	if proxy.console != nil {
+		t.Fatal("expected nil console for non-tty progress")
+	}
+}
+
 func TestWrite_SendsStderrPacket(t *testing.T) {
 	proxy := &StdioProxy{ctx: context.Background(), buf: make([]byte, 1<<20)}
 

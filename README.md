@@ -2,6 +2,15 @@
 
 **container-builder-shim** is a lightweight bridge that connects BuildKit's session protocol with containerization's Build API. It enables compatibility between BuildKit (the build engine behind Docker) and containerization by translating messages and file transfers between their respective APIs.
 
+Stephen Clarke's fork is part of the four-repository `container` preview stack:
+
+- [`container`](https://github.com/stephenlclarke/container): pins this shim through `BUILDER_SHIM_REPOSITORY` and `BUILDER_SHIM_VERSION`.
+- [`container-compose`](https://github.com/stephenlclarke/container-compose): drives build workflows through the matching fork-backed `container` runtime.
+- [`containerization`](https://github.com/stephenlclarke/containerization): provides the Build API and runtime surfaces bridged by this shim.
+- [`homebrew-tap`](https://github.com/stephenlclarke/homebrew-tap): tracks this repository as `sources/container-builder-shim` on `main` for maintenance.
+
+This repository is not installed directly by Homebrew. `container` currently pins the immutable builder image `ghcr.io/stephenlclarke/container-builder-shim/builder:0.13.6`, and new shim work should be published as a tagged release image before `container` is updated to consume it. Go binaries and images for this stack are release-quality artifacts, not debug-only helpers.
+
 ## What It Does
 
 - **Protocol Translation:**
@@ -49,6 +58,23 @@ flowchart LR
 4. The macOS host processes the request (serving context files, resolving images, etc.) and streams the response back.
 5. Build output and metadata flow back through container-builder-shim to BuildKit.
 
+## Build Attestations
+
+The shim accepts gRPC-safe attestation metadata keys from the host and
+forwards them into BuildKit's `SolveOpt.FrontendAttrs`:
+
+- `attest-provenance` becomes `attest:provenance`
+- `attest-sbom` becomes `attest:sbom`
+
+Values are parsed with BuildKit's attestation parser before the solve starts,
+so invalid CSV-style attestation parameters fail early. This keeps
+`container build --provenance` and `container build --sbom` behavior aligned
+with BuildKit while leaving attestation generation to BuildKit itself.
+
+## Development
+
+Use `make test`, `make vet`, `make lint`, and `make coverage` before publishing changes. `make lint` runs a pinned `golangci-lint` through `go run` so the result does not depend on a stale local binary; set `GOLANGCI_LINT=/path/to/golangci-lint` only when you intentionally want to use a known-good installed version.
+
 ## Build Context Transfer
 
 Build context files flow from the macOS host to BuildKit through a three-tier pipeline. Each tier has distinct responsibilities; understanding the split is important when working on file-transfer or security-related code.
@@ -56,14 +82,14 @@ Build context files flow from the macOS host to BuildKit through a three-tier pi
 ### Responsibilities
 
 | Tier | Responsibility |
-|---|---|
+| --- | --- |
 | **macOS host** (`container` / `BuildFSSync`) | Owns the context directory. Enforces the context boundary: rejects any request that resolves outside the root. Packs requested files into a tar archive. Does **not** apply `.dockerignore`. |
 | **container-builder-shim** (`pkg/fssync`) | Bridges the host's wire format and BuildKit's `filesync` gRPC interface. Receives the tar, unpacks it to a content-addressed local cache, applies `.dockerignore` exclusions, and presents the result to BuildKit via `DiffCopy`. |
 | **BuildKit** | Owns all Dockerfile copy semantics: when to dereference symlinks, how to recurse directories, and how `.dockerignore` patterns are interpreted. Drives the transfer by sending `Walk` requests with `followpaths` and `exclude-patterns`. |
 
 ### Primary data flow
 
-```
+```text
 BuildKit ──► shim Walk (followpaths, exclude-patterns)
          ──► host: resolve globs, pack matching paths into tar
          ◄── tar stream
@@ -102,4 +128,3 @@ If BuildKit does not supply `followpaths`, the shim falls back to `addedGlobs`: 
 ## Contributing
 
 Contributions to Containerization are welcomed and encouraged. Please see our [main contributing guide](https://github.com/apple/containerization/blob/main/CONTRIBUTING.md) for more information.
-

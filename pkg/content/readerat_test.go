@@ -50,7 +50,6 @@ func (p *ContentStoreProxy) RegisterDemux(id string, d *stream.Demultiplexer) {
 func (p *ContentStoreProxy) Send(s *api.ServerStream) error {
 	id := s.BuildId
 	dCtx := demuxes[id]
-	fmt.Println("found demuxes", dCtx)
 	v := dCtx.Value(PayloadKey).([]byte)
 	d := dCtx.Value(DemuxKey).(*stream.Demultiplexer)
 	metadata := map[string]string{
@@ -128,6 +127,7 @@ func TestReaderAt_ReadSequential(t *testing.T) {
 func TestReaderAt_ReadAtAndEOF(t *testing.T) {
 	payload := []byte("0123456789")
 	ctx := context.WithValue(context.Background(), PayloadKey, payload)
+	ctx = context.WithValue(ctx, ContentKey, payload)
 
 	rid := uuid.NewString()
 	demuxes[rid] = ctx
@@ -141,7 +141,9 @@ func TestReaderAt_ReadAtAndEOF(t *testing.T) {
 		proxy:      cs,
 		cancel:     func() {},
 	}
-	ra.init()
+	if err := ra.init(); err != nil {
+		t.Fatalf("init returned error: %v", err)
+	}
 	defer ra.Close()
 
 	// slice in the middle
@@ -178,11 +180,15 @@ func TestReaderAt_Seek(t *testing.T) {
 		proxy:      cs,
 		cancel:     func() {},
 	}
-	ra.init()
+	if err := ra.init(); err != nil {
+		t.Fatalf("init returned error: %v", err)
+	}
 	defer ra.Close()
 
 	buf := make([]byte, 3)
-	ra.ReadAt(buf, 3)
+	if n, err := ra.ReadAt(buf, 3); err != nil || n != len(buf) {
+		t.Fatalf("ReadAt got (n=%d, err=%v), want (%d, nil)", n, err, len(buf))
+	}
 	if string(buf) != "cde" {
 		t.Fatalf("after seek read=%q, want \"cde\"", buf)
 	}
@@ -220,7 +226,9 @@ func TestReaderAt_Size(t *testing.T) {
 		proxy:      cs,
 		cancel:     func() {},
 	}
-	ra.init()
+	if err := ra.init(); err != nil {
+		t.Fatalf("init returned error: %v", err)
+	}
 	defer ra.Close()
 
 	if ra.Size() != int64(len(data)) {

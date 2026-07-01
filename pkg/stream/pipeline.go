@@ -67,7 +67,7 @@ func NewPipeline(parent context.Context, raw Stream, stages ...Stage) (*StreamPi
 		p.wg.Add(1)
 		go func(s Stage) {
 			defer p.wg.Done()
-			if err := s.run(ctx); err != nil && ctx.Err() == nil {
+			if err := s.Run(ctx); err != nil && ctx.Err() == nil {
 				logrus.WithError(err).Error("stage terminated")
 				cancel()
 			}
@@ -118,7 +118,7 @@ func (p *StreamPipeline) Run() error {
 				err := stage.Filter(pkt)
 				switch {
 				case err == nil:
-					stage.process(pkt)
+					stage.Process(pkt)
 					handled = true
 				case errors.Is(err, ErrIgnorePacket):
 					continue

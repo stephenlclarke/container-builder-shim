@@ -92,7 +92,9 @@ func BenchmarkPrefetcherRandom(b *testing.B) {
 	buf := make([]byte, bufSize)
 	rnd := rand.New(rand.NewSource(42))
 	startOff := rnd.Int63n(dataSize - int64(bufSize))
-	pf.ReadAt(buf, startOff)
+	if _, err := pf.ReadAt(buf, startOff); err != nil && err != io.EOF {
+		b.Fatalf("prefetch warm-up ReadAt error: %v", err)
+	}
 	b.SetBytes(int64(len(buf)))
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {

@@ -23,6 +23,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	gofs "io/fs"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -35,10 +36,8 @@ func (p *FSSyncProxy) RegisterDemux(id string, d *stream.Demultiplexer) {
 	demuxes[id] = d
 }
 
-var (
-	demuxes = map[string]*stream.Demultiplexer{}
-	headers = map[string][]byte{}
-)
+var demuxes = map[string]*stream.Demultiplexer{}
+var lastWalkRequest *api.BuildTransfer
 
 func makeNestedTarHeaderAndBody() (checksum string, full []byte) {
 	const payload = "hello from tar with nesting\n"
@@ -74,6 +73,7 @@ func makeNestedTarHeaderAndBody() (checksum string, full []byte) {
 func (p *FSSyncProxy) Send(s *api.ServerStream) error {
 	id := s.BuildId
 	d := demuxes[id]
+	lastWalkRequest = s.GetBuildTransfer()
 	checksum, full := makeNestedTarHeaderAndBody()
 	go func() {
 		_ = d.Accept(&api.ClientStream{
@@ -163,4 +163,51 @@ func TestWalk_TarModeSuccess(t *testing.T) {
 	if len(walked) == 0 {
 		t.Errorf("walk callback not invoked")
 	}
+}
+
+func TestWalk_TarModeKeepsRequestedSyntheticDockerfile(t *testing.T) {
+	tmp := t.TempDir()
+
+	ctx := metadata.NewIncomingContext(context.Background(), metadata.Pairs(
+		"mode", "tar",
+		"dir-name", "dockerfile",
+		"followpaths", filepath.Join(DockerfileStaging, "Dockerfile"),
+		"exclude-patterns", DockerfileStaging,
+	))
+	proxy := &FSSyncProxy{
+		dockerfile:   []byte("FROM scratch\n"),
+		dockerignore: []byte(DockerfileStaging),
+	}
+	fs := NewFS(ctx, proxy, "/", tmp)
+	lastWalkRequest = nil
+
+	var walked []string
+	err := fs.Walk(ctx, "", func(path string, _ gofs.DirEntry, _ error) error {
+		walked = append(walked, path)
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("Walk returned err=%v", err)
+	}
+	if !containsPath(walked, filepath.Join(DockerfileStaging, "Dockerfile")) {
+		t.Fatalf("synthetic Dockerfile was not walked: %v", walked)
+	}
+	if lastWalkRequest == nil {
+		t.Fatal("host walk request was not captured")
+	}
+	if got, want := lastWalkRequest.GetMetadata()["dir-name"], "context"; got != want {
+		t.Fatalf("host walk dir-name = %q, want %q", got, want)
+	}
+	if containsPath(walked, filepath.Join(DockerfileStaging, "Dockerfile.dockerignore")) {
+		t.Fatalf("synthetic Dockerfile.dockerignore should remain excluded: %v", walked)
+	}
+}
+
+func containsPath(paths []string, path string) bool {
+	for _, candidate := range paths {
+		if candidate == path {
+			return true
+		}
+	}
+	return false
 }

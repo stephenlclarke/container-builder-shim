@@ -204,10 +204,14 @@ func TestPrefetcherHighConcurrencyExtreme(t *testing.T) {
 			for j := 0; j < 5; j++ {
 				buf := make([]byte, 1024)
 				offset := rand.Int63n(int64(dataSize - 1024))
-				newPrefetcher.ReadAt(buf, offset)
+				if _, err := newPrefetcher.ReadAt(buf, offset); err != nil && err != io.EOF {
+					t.Errorf("ReadAt(%d) returned %v", offset, err)
+				}
 			}
 
-			newPrefetcher.Close()
+			if err := newPrefetcher.Close(); err != nil {
+				t.Errorf("Close returned %v", err)
+			}
 			time.Sleep(50 * time.Millisecond)
 		}
 	}()
