@@ -1,4 +1,4 @@
-#!/usr/bin/env bash 
+#!/usr/bin/env bash
 # Copyright © 2025-2026 Apple Inc. and the container-builder-shim project authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -20,17 +20,33 @@ if command -v .local/bin/hawkeye >/dev/null 2>&1; then
     exit 0
 fi
 
-# This installer supports Apple silicon (arm64 macOS) only.
-if [ "$(uname -s)" != "Darwin" ] || [ "$(uname -m)" != "arm64" ]; then
-    echo "error: install-hawkeye.sh supports Apple silicon (arm64 macOS) only" >&2
-    exit 1
-fi
-
 VERSION=v6.5.1
-ARTIFACT="hawkeye-aarch64-apple-darwin.tar.xz"
+
+# Select the pinned Hawkeye release artifact for the current platform.
+case "$(uname -s)/$(uname -m)" in
+    Darwin/arm64)
+        ARTIFACT="hawkeye-aarch64-apple-darwin.tar.xz"
+        EXPECTED_SHA256="99777f21e4e56c9946ed93621885532c6a0476377f497565c583f5911f2cbb1f"
+        ;;
+    Darwin/x86_64)
+        ARTIFACT="hawkeye-x86_64-apple-darwin.tar.xz"
+        EXPECTED_SHA256="23d53443fd810df74b21f6f82ccc3d1db7df6c33962239dcefd581cef74b59c1"
+        ;;
+    Linux/x86_64)
+        ARTIFACT="hawkeye-x86_64-unknown-linux-gnu.tar.xz"
+        EXPECTED_SHA256="d6eb0505a45a15244f4f789158aafe5e3f1a7dc86c9dc1d7651f3cb1e1b321e0"
+        ;;
+    Linux/aarch64|Linux/arm64)
+        ARTIFACT="hawkeye-aarch64-unknown-linux-gnu.tar.xz"
+        EXPECTED_SHA256="51962edc7008658d7d44f637ea33582bb441635496c617b2a63ca61ab4ed43b6"
+        ;;
+    *)
+        echo "error: install-hawkeye.sh does not support $(uname -s)/$(uname -m)" >&2
+        exit 1
+        ;;
+esac
+
 ARTIFACT_URL="https://github.com/korandoru/hawkeye/releases/download/${VERSION}/${ARTIFACT}"
-# Pinned SHA-256 of ${ARTIFACT} for ${VERSION}; update when bumping VERSION.
-EXPECTED_SHA256="99777f21e4e56c9946ed93621885532c6a0476377f497565c583f5911f2cbb1f"
 
 echo "Installing hawkeye ${VERSION}"
 workdir="$(mktemp -d)"

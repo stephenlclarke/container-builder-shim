@@ -9,7 +9,7 @@ Stephen Clarke's fork is part of the four-repository `container` preview stack:
 - [`containerization`](https://github.com/stephenlclarke/containerization): provides the Build API and runtime surfaces bridged by this shim.
 - [`homebrew-tap`](https://github.com/stephenlclarke/homebrew-tap): tracks this repository as `sources/container-builder-shim` on `main` for maintenance.
 
-This repository is not installed directly by Homebrew. `container` currently pins the immutable builder image `ghcr.io/stephenlclarke/container-builder-shim/builder:0.13.7`, and new shim work should be published as a tagged release image before `container` is updated to consume it. Go binaries and images for this stack are release-quality artifacts, not debug-only helpers.
+This repository is not installed directly by Homebrew. `container` currently pins the immutable builder image `ghcr.io/stephenlclarke/container-builder-shim/builder:0.13.8`, and new shim work should be published as a tagged release image before `container` is updated to consume it. Go binaries and images for this stack are release-quality artifacts, not debug-only helpers.
 
 ## What It Does
 
