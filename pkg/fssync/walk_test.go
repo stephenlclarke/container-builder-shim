@@ -70,11 +70,16 @@ func makeNestedTarHeaderAndBody() (checksum string, full []byte) {
 	return hex.EncodeToString(header[:]), full
 }
 
+// testTarFactory produces the tar content served by the fake Send below.
+// Tests that need a different build-context tree may override it and restore
+// the previous value when done.
+var testTarFactory = makeNestedTarHeaderAndBody
+
 func (p *FSSyncProxy) Send(s *api.ServerStream) error {
 	id := s.BuildId
 	d := demuxes[id]
 	lastWalkRequest = s.GetBuildTransfer()
-	checksum, full := makeNestedTarHeaderAndBody()
+	checksum, full := testTarFactory()
 	go func() {
 		_ = d.Accept(&api.ClientStream{
 			BuildId: id,
@@ -178,11 +183,14 @@ func TestWalk_TarModeKeepsRequestedSyntheticDockerfile(t *testing.T) {
 		dockerfile:   []byte("FROM scratch\n"),
 		dockerignore: []byte(DockerfileStaging),
 	}
-	fs := NewFS(ctx, proxy, "/", tmp)
+	fs, err := filteredFS(ctx, proxy, NewFS(ctx, proxy, "/", tmp))
+	if err != nil {
+		t.Fatalf("filteredFS returned err=%v", err)
+	}
 	lastWalkRequest = nil
 
 	var walked []string
-	err := fs.Walk(ctx, "", func(path string, _ gofs.DirEntry, _ error) error {
+	err = fs.Walk(ctx, "", func(path string, _ gofs.DirEntry, _ error) error {
 		walked = append(walked, path)
 		return nil
 	})

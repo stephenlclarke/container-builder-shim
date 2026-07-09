@@ -24,11 +24,13 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"syscall"
 
 	"github.com/moby/buildkit/session/filesync"
 	"github.com/pkg/errors"
+	"github.com/tonistiigi/fsutil"
 	"github.com/tonistiigi/fsutil/types"
 	"golang.org/x/sync/errgroup"
 )
@@ -41,14 +43,59 @@ import (
 // to reduce syscall overhead for large files.
 func (f *FSSyncProxy) DiffCopy(ss filesync.FileSync_DiffCopyServer) error {
 	ctx := ss.Context()
-	fs := NewFS(ctx, f, f.contextDir, f.basePath)
+	fs, err := filteredFS(ctx, f, NewFS(ctx, f, f.contextDir, f.basePath))
+	if err != nil {
+		return err
+	}
 	s := &sender{
 		conn:         &syncStream{Stream: ss},
+		proxy:        f,
 		fs:           fs,
 		files:        make(map[uint32]string),
 		sendpipeline: make(chan *sendHandle, 128),
 	}
 	return s.run(ctx)
+}
+
+// filteredFS wraps the build-context FS with the exclude patterns (from
+// .dockerignore) that BuildKit sends in the request metadata, mirroring how
+// BuildKit's own filesync provider filters a local context.
+//
+// fsutil's filter implements the full pattern semantics; in particular, when
+// a negation pattern re-includes a file inside an excluded directory, the
+// excluded ancestor directories are emitted before the file. BuildKit's
+// receiver rejects the stream with "changes out of order" if a file arrives
+// without its parent directories.
+func filteredFS(ctx context.Context, proxy *FSSyncProxy, inner fsutil.FS) (fsutil.FS, error) {
+	walkMeta, err := unmarshalWalkMetadata(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return fsutil.NewFilterFS(inner, &fsutil.FilterOpt{
+		ExcludePatterns: excludePatternsForWalk(walkMeta, proxy),
+	})
+}
+
+func excludePatternsForWalk(walkMeta *WalkMetadata, proxy *FSSyncProxy) []string {
+	patterns := append([]string(nil), walkMeta.ExcludedPatterns...)
+	if len(patterns) == 0 {
+		return nil
+	}
+
+	followPaths := walkMeta.FollowPaths
+	if followPaths == "" && proxy != nil {
+		followPaths = strings.Join(proxy.addedGlobs, ",")
+	}
+	requested := requestedSyntheticDockerfilePaths(followPaths)
+	for _, path := range []string{
+		filepath.Join(DockerfileStaging, "Dockerfile"),
+		filepath.Join(DockerfileStaging, "Dockerfile.dockerignore"),
+	} {
+		if _, ok := requested[path]; ok {
+			patterns = append(patterns, "!"+path)
+		}
+	}
+	return patterns
 }
 
 var bufPool = sync.Pool{
@@ -71,7 +118,8 @@ type sendHandle struct {
 
 type sender struct {
 	conn         Stream
-	fs           *FS
+	proxy        *FSSyncProxy
+	fs           fsutil.FS
 	files        map[uint32]string
 	mu           sync.RWMutex
 	sendpipeline chan *sendHandle
@@ -155,9 +203,13 @@ func (s *sender) sendFile(h *sendHandle) error {
 
 	switch h.path {
 	case filepath.Join(DockerfileStaging, "Dockerfile"):
-		r = bytes.NewReader(s.fs.proxy.dockerfile)
+		if s.proxy != nil {
+			r = bytes.NewReader(s.proxy.dockerfile)
+		}
 	case filepath.Join(DockerfileStaging, "Dockerfile.dockerignore"):
-		r = bytes.NewReader(s.fs.proxy.dockerignore)
+		if s.proxy != nil {
+			r = bytes.NewReader(s.proxy.dockerignore)
+		}
 	}
 
 	if r == nil {

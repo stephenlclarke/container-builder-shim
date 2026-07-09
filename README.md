@@ -9,7 +9,7 @@ Stephen Clarke's fork is part of the four-repository `container` preview stack:
 - [`containerization`](https://github.com/stephenlclarke/containerization): provides the Build API and runtime surfaces bridged by this shim.
 - [`homebrew-tap`](https://github.com/stephenlclarke/homebrew-tap): tracks this repository as `sources/container-builder-shim` on `main` for maintenance.
 
-This repository is not installed directly by Homebrew. `container` currently pins the immutable builder image `ghcr.io/stephenlclarke/container-builder-shim/builder:0.13.6`, and new shim work should be published as a tagged release image before `container` is updated to consume it. Go binaries and images for this stack are release-quality artifacts, not debug-only helpers.
+This repository is not installed directly by Homebrew. `container` currently pins the immutable builder image `ghcr.io/stephenlclarke/container-builder-shim/builder:0.13.7`, and new shim work should be published as a tagged release image before `container` is updated to consume it. Go binaries and images for this stack are release-quality artifacts, not debug-only helpers.
 
 ## What It Does
 
@@ -84,7 +84,7 @@ Build context files flow from the macOS host to BuildKit through a three-tier pi
 | Tier | Responsibility |
 | --- | --- |
 | **macOS host** (`container` / `BuildFSSync`) | Owns the context directory. Enforces the context boundary: rejects any request that resolves outside the root. Packs requested files into a tar archive. Does **not** apply `.dockerignore`. |
-| **container-builder-shim** (`pkg/fssync`) | Bridges the host's wire format and BuildKit's `filesync` gRPC interface. Receives the tar, unpacks it to a content-addressed local cache, applies `.dockerignore` exclusions, and presents the result to BuildKit via `DiffCopy`. |
+| **container-builder-shim** (`pkg/fssync`) | Bridges the host's wire format and BuildKit's `filesync` gRPC interface. Receives the tar, unpacks it to a content-addressed local cache, wraps the cache in BuildKit's `fsutil` filter for `.dockerignore` exclusions, and presents the result to BuildKit via `DiffCopy`. |
 | **BuildKit** | Owns all Dockerfile copy semantics: when to dereference symlinks, how to recurse directories, and how `.dockerignore` patterns are interpreted. Drives the transfer by sending `Walk` requests with `followpaths` and `exclude-patterns`. |
 
 ### Primary data flow
@@ -93,7 +93,7 @@ Build context files flow from the macOS host to BuildKit through a three-tier pi
 BuildKit ──► shim Walk (followpaths, exclude-patterns)
          ──► host: resolve globs, pack matching paths into tar
          ◄── tar stream
-shim unpacks tar to content-addressed cache, applies .dockerignore
+shim unpacks tar to content-addressed cache and wraps it in fsutil's .dockerignore filter
 BuildKit ◄── DiffCopy PACKET_STAT   (one entry per file/dir/symlink)
 BuildKit ──► PACKET_REQ             (for each regular file it needs)
 BuildKit ◄── PACKET_DATA            (shim reads from local cache)
@@ -117,7 +117,7 @@ These rules govern how files are selected, transferred, and presented. They refl
 
 ### `.dockerignore`
 
-`.dockerignore` filtering is the shim's responsibility, not the host's. After unpacking the tar, the shim walks the cache directory and applies the `exclude-patterns` received from BuildKit before emitting `PACKET_STAT` entries. The host has no knowledge of `.dockerignore`.
+`.dockerignore` filtering is the shim's responsibility, not the host's. After unpacking the tar, the shim wraps the cache directory in BuildKit's `fsutil` filter and applies the raw `exclude-patterns` received from BuildKit before emitting `PACKET_STAT` entries. This preserves Docker-compatible negation behavior, including re-emitting excluded parent directories before re-included descendants. The host has no knowledge of `.dockerignore`.
 
 ### `followpaths`
 
