@@ -2,14 +2,15 @@
 
 **container-builder-shim** is a lightweight bridge that connects BuildKit's session protocol with containerization's Build API. It enables compatibility between BuildKit (the build engine behind Docker) and containerization by translating messages and file transfers between their respective APIs.
 
-stephenlclarke's fork is part of the four-repository `container` preview stack:
-
-- [`container`](https://github.com/stephenlclarke/container): pins this shim through `BUILDER_SHIM_REPOSITORY` and `BUILDER_SHIM_VERSION`.
-- [`container-compose`](https://github.com/stephenlclarke/container-compose): drives build workflows through the matching fork-backed `container` runtime.
-- [`containerization`](https://github.com/stephenlclarke/containerization): provides the Build API and runtime surfaces bridged by this shim.
-- [`homebrew-tap`](https://github.com/stephenlclarke/homebrew-tap): tracks this repository as `sources/container-builder-shim` on `main` for maintenance.
-
-This repository is not installed directly by Homebrew. `container` currently pins the immutable builder image `ghcr.io/stephenlclarke/container-builder-shim/builder:0.13.8`, and new shim work should be published as a tagged release image before `container` is updated to consume it. Go binaries and images for this stack are release-quality artifacts, not debug-only helpers.
+The `stephenlclarke` fork supplies the immutable builder image selected by
+[`container`](https://github.com/stephenlclarke/container) through
+`BUILDER_SHIM_REPOSITORY` and `BUILDER_SHIM_VERSION`. It is not installed as a
+Homebrew formula. The canonical stack map, current image pin, and release policy
+live in `container-compose`'s [README](https://github.com/stephenlclarke/container-compose#project-repositories),
+[STATUS.md](https://github.com/stephenlclarke/container-compose/blob/main/STATUS.md),
+and [BRANCHES.md](https://github.com/stephenlclarke/container-compose/blob/main/BRANCHES.md).
+Publish new shim work as a tagged builder image before updating `container` to
+consume it. Go binaries and images in this stack are release-quality artifacts.
 
 ## What It Does
 
@@ -127,4 +128,5 @@ If BuildKit does not supply `followpaths`, the shim falls back to `addedGlobs`: 
 
 ## Contributing
 
-Contributions to Containerization are welcomed and encouraged. Please see our [main contributing guide](https://github.com/apple/containerization/blob/main/CONTRIBUTING.md) for more information.
+Contributions to container-builder-shim are welcomed and encouraged. See the
+[contributing guide](CONTRIBUTING.md) for development and review requirements.
