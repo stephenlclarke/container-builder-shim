@@ -2,7 +2,7 @@
 
 **container-builder-shim** is a lightweight bridge that connects BuildKit's session protocol with containerization's Build API. It enables compatibility between BuildKit (the build engine behind Docker) and containerization by translating messages and file transfers between their respective APIs.
 
-Stephen Clarke's fork is part of the four-repository `container` preview stack:
+stephenlclarke's fork is part of the four-repository `container` preview stack:
 
 - [`container`](https://github.com/stephenlclarke/container): pins this shim through `BUILDER_SHIM_REPOSITORY` and `BUILDER_SHIM_VERSION`.
 - [`container-compose`](https://github.com/stephenlclarke/container-compose): drives build workflows through the matching fork-backed `container` runtime.
