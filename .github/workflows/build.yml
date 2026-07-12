@@ -97,6 +97,8 @@ jobs:
         with:
           platforms: linux/arm64
           push: false
+          provenance: mode=max
+          sbom: true
           tags: ghcr.io/${{ github.repository_owner }}/container-builder-shim/builder:test
           build-args: |
             GIT_TAG=${{ github.sha }}

@@ -4,13 +4,15 @@
 
 The `stephenlclarke` fork supplies the immutable builder image selected by
 [`container`](https://github.com/stephenlclarke/container) through
-`BUILDER_SHIM_REPOSITORY` and `BUILDER_SHIM_VERSION`. It is not installed as a
-Homebrew formula. The canonical stack map, current image pin, and release policy
-live in `container-compose`'s [README](https://github.com/stephenlclarke/container-compose#project-repositories),
+`BUILDER_SHIM_REPOSITORY`, `BUILDER_SHIM_VERSION`, and `BUILDER_SHIM_DIGEST`.
+It is not installed as a Homebrew formula. The canonical stack map, current
+image pin, and release policy live in `container-compose`'s
+[README](https://github.com/stephenlclarke/container-compose#project-repositories),
 [STATUS.md](https://github.com/stephenlclarke/container-compose/blob/main/STATUS.md),
 and [BRANCHES.md](https://github.com/stephenlclarke/container-compose/blob/main/BRANCHES.md).
-Publish new shim work as a tagged builder image before updating `container` to
-consume it. Go binaries and images in this stack are release-quality artifacts.
+Publish new shim work as a tagged builder image, resolve the pushed image
+digest, and update `container` to consume the digest-pinned image reference. Go
+binaries and images in this stack are release-quality artifacts.
 
 ## What It Does
 
