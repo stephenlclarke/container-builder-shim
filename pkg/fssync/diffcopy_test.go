@@ -23,6 +23,8 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
+	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"slices"
@@ -40,6 +42,16 @@ type mockConn struct {
 	recvQ chan *types.Packet
 	sent  []*types.Packet
 	mu    sync.Mutex
+}
+
+type failingOpenFS struct{}
+
+func (failingOpenFS) Open(string) (io.ReadCloser, error) {
+	return nil, fs.ErrNotExist
+}
+
+func (failingOpenFS) Walk(context.Context, string, fs.WalkDirFunc) error {
+	return nil
 }
 
 func newMockStream() *mockConn {
@@ -149,6 +161,22 @@ func TestSenderQueueInvalidIDReturnsError(t *testing.T) {
 
 	if err := s.queue(99); err == nil {
 		t.Fatalf("queue(99) returned nil error, want non-nil")
+	}
+}
+
+func TestSenderSendFileReturnsOpenError(t *testing.T) {
+	ms := newMockStream()
+	s := &sender{
+		conn: ms,
+		fs:   failingOpenFS{},
+	}
+
+	err := s.sendFile(&sendHandle{id: 7, path: "missing"})
+	if !errors.Is(err, fs.ErrNotExist) {
+		t.Fatalf("sendFile error = %v, want fs.ErrNotExist", err)
+	}
+	if len(ms.sent) != 0 {
+		t.Fatalf("sendFile emitted packets after open failure: %v", ms.sent)
 	}
 }
 

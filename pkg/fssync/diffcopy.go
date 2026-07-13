@@ -214,11 +214,12 @@ func (s *sender) sendFile(h *sendHandle) error {
 
 	if r == nil {
 		f, err := s.fs.Open(h.path)
-		if err == nil {
-			defer f.Close()
-			if _, err := io.CopyBuffer(&fileSender{sender: s, id: h.id}, struct{ io.Reader }{f}, *buf); err != nil {
-				return err
-			}
+		if err != nil {
+			return errors.Wrapf(err, "failed to open requested file %s", h.path)
+		}
+		defer f.Close()
+		if _, err := io.CopyBuffer(&fileSender{sender: s, id: h.id}, struct{ io.Reader }{f}, *buf); err != nil {
+			return err
 		}
 	} else {
 		if _, err := io.CopyBuffer(&fileSender{sender: s, id: h.id}, r, *buf); err != nil {
