@@ -23,6 +23,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	gofs "io/fs"
+	"os"
 	"path/filepath"
 	"testing"
 	"time"
@@ -183,7 +184,8 @@ func TestWalk_TarModeKeepsRequestedSyntheticDockerfile(t *testing.T) {
 		dockerfile:   []byte("FROM scratch\n"),
 		dockerignore: []byte(DockerfileStaging),
 	}
-	fs, err := filteredFS(ctx, proxy, NewFS(ctx, proxy, "/", tmp))
+	rawFS := NewFS(ctx, proxy, "/", tmp)
+	fs, err := filteredFS(ctx, proxy, rawFS)
 	if err != nil {
 		t.Fatalf("filteredFS returned err=%v", err)
 	}
@@ -200,6 +202,9 @@ func TestWalk_TarModeKeepsRequestedSyntheticDockerfile(t *testing.T) {
 	if !containsPath(walked, filepath.Join(DockerfileStaging, "Dockerfile")) {
 		t.Fatalf("synthetic Dockerfile was not walked: %v", walked)
 	}
+	if indexOfPath(walked, DockerfileStaging) > indexOfPath(walked, "dir") {
+		t.Fatalf("synthetic Dockerfile directory was emitted out of order: %v", walked)
+	}
 	if lastWalkRequest == nil {
 		t.Fatal("host walk request was not captured")
 	}
@@ -209,6 +214,18 @@ func TestWalk_TarModeKeepsRequestedSyntheticDockerfile(t *testing.T) {
 	if containsPath(walked, filepath.Join(DockerfileStaging, "Dockerfile.dockerignore")) {
 		t.Fatalf("synthetic Dockerfile.dockerignore should remain excluded: %v", walked)
 	}
+	if _, err := os.Stat(filepath.Join(tmp, rawFS.getChecksum(), DockerfileStaging)); !os.IsNotExist(err) {
+		t.Fatalf("synthetic Dockerfile directory persisted in shared cache: %v", err)
+	}
+}
+
+func indexOfPath(paths []string, path string) int {
+	for index, candidate := range paths {
+		if candidate == path {
+			return index
+		}
+	}
+	return len(paths)
 }
 
 func containsPath(paths []string, path string) bool {

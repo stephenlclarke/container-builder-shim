@@ -180,6 +180,38 @@ func TestSenderSendFileReturnsOpenError(t *testing.T) {
 	}
 }
 
+func TestSenderSendFileUsesRequestLocalDockerfile(t *testing.T) {
+	for _, test := range []struct {
+		name       string
+		dockerfile string
+	}{
+		{name: "first build", dockerfile: "FROM alpine:3.20\n"},
+		{name: "second build", dockerfile: "FROM busybox:1.36\n"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			stream := newMockStream()
+			sender := &sender{
+				conn:  stream,
+				proxy: &FSSyncProxy{dockerfile: []byte(test.dockerfile)},
+				fs:    failingOpenFS{},
+			}
+
+			if err := sender.sendFile(&sendHandle{id: 7, path: filepath.Join(DockerfileStaging, "Dockerfile")}); err != nil {
+				t.Fatalf("sendFile returned error: %v", err)
+			}
+			if len(stream.sent) != 2 {
+				t.Fatalf("sent %d packets, want content and completion", len(stream.sent))
+			}
+			if got := string(stream.sent[0].Data); got != test.dockerfile {
+				t.Fatalf("Dockerfile data = %q, want %q", got, test.dockerfile)
+			}
+			if packet := stream.sent[1]; packet.Type != types.PACKET_DATA || len(packet.Data) != 0 {
+				t.Fatalf("completion packet = %+v, want empty PACKET_DATA", packet)
+			}
+		})
+	}
+}
+
 func TestUnmarshalWalkMetadataPreservesCommaInExcludePattern(t *testing.T) {
 	ctx := metadata.NewIncomingContext(context.Background(), metadata.MD{
 		"exclude-patterns": []string{"logs,old/*", "tmp/*"},

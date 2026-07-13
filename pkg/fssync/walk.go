@@ -135,8 +135,12 @@ func (f *FS) Walk(ctx context.Context, target string, fn fs.WalkDirFunc) error {
 	switch walkMeta.Mode {
 	case ModeTAR:
 		receiver := fileutils.NewTarReceiver(f.fsPath, demux)
-		checksum, err := receiver.Receive(ctx, f.proxy.dockerfile, f.proxy.dockerignore, fn)
+		syntheticWalker := newSyntheticDockerfileWalker(f.proxy, syntheticFollowPaths, fn)
+		checksum, err := receiver.Receive(ctx, syntheticWalker.Walk)
 		if err != nil {
+			return err
+		}
+		if err := syntheticWalker.Finish(); err != nil {
 			return err
 		}
 		f._checksumMutex.Lock()
@@ -146,6 +150,86 @@ func (f *FS) Walk(ctx context.Context, target string, fn fs.WalkDirFunc) error {
 	default:
 		return fmt.Errorf("unsupported walk mode: %q", walkMeta.Mode)
 	}
+}
+
+// syntheticDockerfileWalker merges Dockerfile inputs from the active build
+// request into a cache-backed walk without persisting them in the shared,
+// content-addressed context cache.
+type syntheticDockerfileWalker struct {
+	entries []syntheticDockerfileEntry
+	next    int
+	fn      fs.WalkDirFunc
+}
+
+type syntheticDockerfileEntry struct {
+	path string
+	data []byte
+}
+
+func newSyntheticDockerfileWalker(proxy *FSSyncProxy, requested map[string]struct{}, fn fs.WalkDirFunc) *syntheticDockerfileWalker {
+	walker := &syntheticDockerfileWalker{fn: fn}
+	if proxy == nil || len(requested) == 0 {
+		return walker
+	}
+
+	files := []syntheticDockerfileEntry{
+		{path: filepath.Join(DockerfileStaging, "Dockerfile"), data: proxy.dockerfile},
+		{path: filepath.Join(DockerfileStaging, "Dockerfile.dockerignore"), data: proxy.dockerignore},
+	}
+
+	hasFile := false
+	for _, file := range files {
+		if _, ok := requested[file.path]; ok && len(file.data) > 0 {
+			hasFile = true
+			break
+		}
+	}
+	if !hasFile {
+		return walker
+	}
+
+	walker.entries = append(walker.entries, syntheticDockerfileEntry{path: DockerfileStaging})
+	for _, file := range files {
+		if _, ok := requested[file.path]; ok && len(file.data) > 0 {
+			walker.entries = append(walker.entries, file)
+		}
+	}
+	return walker
+}
+
+func (w *syntheticDockerfileWalker) Walk(path string, entry fs.DirEntry, walkErr error) error {
+	for w.next < len(w.entries) && w.entries[w.next].path < path {
+		if err := w.emit(w.entries[w.next]); err != nil {
+			return err
+		}
+		w.next++
+	}
+	return w.fn(path, entry, walkErr)
+}
+
+func (w *syntheticDockerfileWalker) Finish() error {
+	for w.next < len(w.entries) {
+		if err := w.emit(w.entries[w.next]); err != nil {
+			return err
+		}
+		w.next++
+	}
+	return nil
+}
+
+func (w *syntheticDockerfileWalker) emit(entry syntheticDockerfileEntry) error {
+	if entry.path == DockerfileStaging {
+		return w.fn(DockerfileStaging, fs.FileInfoToDirEntry(&fileutils.FileInfo{
+			NameVal:  DockerfileStaging,
+			ModeVal:  fs.ModeDir | 0o755,
+			IsDirVal: true,
+		}), nil)
+	}
+	return w.fn(entry.path, fs.FileInfoToDirEntry(&fileutils.FileInfo{
+		NameVal: entry.path,
+		SizeVal: int64(len(entry.data)),
+		ModeVal: 0o644,
+	}), nil)
 }
 
 func requestedSyntheticDockerfilePaths(followPaths string) map[string]struct{} {

@@ -78,6 +78,8 @@ with BuildKit while leaving attestation generation to BuildKit itself.
 
 Use `make test`, `make vet`, `make lint`, and `make coverage` before publishing changes. `make lint` runs a pinned `golangci-lint` through `go run` so the result does not depend on a stale local binary; set `GOLANGCI_LINT=/path/to/golangci-lint` only when you intentionally want to use a known-good installed version.
 
+The builder image runs as root because the shim owns the BuildKit daemon, its Unix socket, and state under `/var/lib/container-builder-shim`. Do not switch the final image to a non-root user without moving those responsibilities and validating a live build.
+
 ## Build Context Transfer
 
 Build context files flow from the macOS host to BuildKit through a three-tier pipeline. Each tier has distinct responsibilities; understanding the split is important when working on file-transfer or security-related code.
@@ -101,6 +103,8 @@ BuildKit ◄── DiffCopy PACKET_STAT   (one entry per file/dir/symlink)
 BuildKit ──► PACKET_REQ             (for each regular file it needs)
 BuildKit ◄── PACKET_DATA            (shim reads from local cache)
 ```
+
+Before a context enters the cache, the shim verifies the host-provided SHA-256 against the received archive. It extracts under a per-context lock into a temporary directory and atomically publishes a completion-marked cache entry. Incomplete or symlinked cache entries are never reused. Synthetic Dockerfile inputs are emitted from the active build request and are not stored in the shared cache, so separate `-f` Dockerfiles cannot affect one another.
 
 There is also a fallback path (`Info` → `Read`) used by `FS.Open` when the local cache is unpopulated — a narrow race window at the start of a build. The host enforces the same boundary rules on this path.
 
