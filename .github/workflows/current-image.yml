@@ -63,7 +63,7 @@ jobs:
               else
                 build_conclusion="$(
                   gh api --paginate "repos/${GITHUB_REPOSITORY}/actions/runs/${WORKFLOW_RUN_ID}/jobs" \
-                    --jq '.jobs[] | select(.name == "Invoke build") | .conclusion' \
+                    --jq '.jobs[] | select(.name | startswith("Invoke build")) | .conclusion' \
                     | tail -n 1
                 )"
                 if [[ "${build_conclusion}" != "success" ]]; then
@@ -94,7 +94,7 @@ jobs:
               fi
               build_conclusion="$(
                 gh api --paginate "repos/${GITHUB_REPOSITORY}/actions/runs/${run_id}/jobs" \
-                  --jq '.jobs[] | select(.name == "Invoke build") | .conclusion' \
+                  --jq '.jobs[] | select(.name | startswith("Invoke build")) | .conclusion' \
                   | tail -n 1
               )"
               if [[ "${build_conclusion}" != "success" ]]; then
