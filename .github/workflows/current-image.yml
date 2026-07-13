@@ -1,0 +1,250 @@
+name: Publish Current Builder Image
+
+on:
+  workflow_run:
+    workflows:
+      - Container Builder Shim - PR/merge build
+    types:
+      - completed
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: "main publishes the validated current builder image"
+        required: true
+        default: main
+        type: string
+
+permissions:
+  actions: read
+  contents: write
+  packages: write
+
+concurrency:
+  group: publish-current-builder-image-${{ github.event.workflow_run.head_sha || inputs.ref }}
+  cancel-in-progress: false
+
+jobs:
+  resolve-publish-context:
+    name: Resolve Publish Context
+    if: github.repository == 'stephenlclarke/container-builder-shim'
+    runs-on: ubuntu-latest
+    outputs:
+      publish: ${{ steps.context.outputs.publish }}
+      sha: ${{ steps.context.outputs.sha }}
+      image_tag: ${{ steps.context.outputs.image_tag }}
+      release_tag: ${{ steps.context.outputs.release_tag }}
+      release_title: ${{ steps.context.outputs.release_title }}
+    steps:
+      - name: Require a validated current main commit
+        id: context
+        env:
+          GH_TOKEN: ${{ github.token }}
+          DISPATCH_REF: ${{ inputs.ref }}
+          WORKFLOW_RUN_CONCLUSION: ${{ github.event.workflow_run.conclusion }}
+          WORKFLOW_RUN_EVENT: ${{ github.event.workflow_run.event }}
+          WORKFLOW_RUN_HEAD_BRANCH: ${{ github.event.workflow_run.head_branch }}
+          WORKFLOW_RUN_HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+          WORKFLOW_RUN_ID: ${{ github.event.workflow_run.id }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          remote="https://github.com/${GITHUB_REPOSITORY}.git"
+          publish=false
+          sha=""
+
+          case "${GITHUB_EVENT_NAME}" in
+            workflow_run)
+              if [[ "${WORKFLOW_RUN_CONCLUSION}" != "success" || "${WORKFLOW_RUN_EVENT}" != "push" || "${WORKFLOW_RUN_HEAD_BRANCH}" != "main" ]]; then
+                printf 'Skipping non-main successful build event.\n'
+              elif [[ ! "${WORKFLOW_RUN_HEAD_SHA}" =~ ^[0-9a-f]{40}$ ]]; then
+                printf 'Workflow run did not provide a full source SHA: %s\n' "${WORKFLOW_RUN_HEAD_SHA}" >&2
+                exit 1
+              else
+                build_conclusion="$(
+                  gh api --paginate "repos/${GITHUB_REPOSITORY}/actions/runs/${WORKFLOW_RUN_ID}/jobs" \
+                    --jq '.jobs[] | select(.name == "Invoke build") | .conclusion' \
+                    | tail -n 1
+                )"
+                if [[ "${build_conclusion}" != "success" ]]; then
+                  printf 'Skipping current builder image: build concluded %s.\n' "${build_conclusion:-missing}"
+                else
+                  sha="${WORKFLOW_RUN_HEAD_SHA}"
+                fi
+              fi
+              ;;
+            workflow_dispatch)
+              if [[ "${DISPATCH_REF}" != "main" ]]; then
+                printf 'Current builder images may only be published from main, not %s.\n' "${DISPATCH_REF}" >&2
+                exit 1
+              fi
+              sha="$(git ls-remote --heads "${remote}" refs/heads/main | awk '{ print $1 }' | tail -n 1)"
+              if [[ ! "${sha}" =~ ^[0-9a-f]{40}$ ]]; then
+                printf 'Could not resolve main to an immutable source SHA.\n' >&2
+                exit 1
+              fi
+              run_id="$(
+                gh run list --repo "${GITHUB_REPOSITORY}" --workflow build.yml --commit "${sha}" --event push --limit 20 \
+                  --json databaseId,status,conclusion \
+                  --jq 'map(select(.status == "completed" and .conclusion == "success"))[0].databaseId // empty'
+              )"
+              if [[ -z "${run_id}" ]]; then
+                printf 'No successful main build exists for %s.\n' "${sha}" >&2
+                exit 1
+              fi
+              build_conclusion="$(
+                gh api --paginate "repos/${GITHUB_REPOSITORY}/actions/runs/${run_id}/jobs" \
+                  --jq '.jobs[] | select(.name == "Invoke build") | .conclusion' \
+                  | tail -n 1
+              )"
+              if [[ "${build_conclusion}" != "success" ]]; then
+                printf 'Main build %s for %s concluded %s.\n' "${run_id}" "${sha}" "${build_conclusion:-missing}" >&2
+                exit 1
+              fi
+              ;;
+            *)
+              printf 'Unsupported event: %s\n' "${GITHUB_EVENT_NAME}" >&2
+              exit 1
+              ;;
+          esac
+
+          if [[ -n "${sha}" ]]; then
+            current_main="$(git ls-remote --heads "${remote}" refs/heads/main | awk '{ print $1 }' | tail -n 1)"
+            if [[ "${current_main}" != "${sha}" ]]; then
+              printf 'Skipping superseded main build at %s; main is now %s.\n' "${sha}" "${current_main:-missing}"
+              sha=""
+            fi
+          fi
+
+          if [[ -n "${sha}" ]]; then
+            short_sha="${sha:0:12}"
+            release_tag="builder-current-${GITHUB_RUN_ID}-${short_sha}"
+            image_tag="current-${GITHUB_RUN_ID}-${short_sha}"
+            release_title="Current builder image · ${short_sha}"
+
+            if target="$(gh release view "${release_tag}" --repo "${GITHUB_REPOSITORY}" --json targetCommitish --jq '.targetCommitish' 2>/dev/null)"; then
+              if [[ "${target}" != "${sha}" ]]; then
+                printf 'Current release %s already targets %s, not %s.\n' "${release_tag}" "${target}" "${sha}" >&2
+                exit 1
+              fi
+              printf 'Current builder image release %s already exists.\n' "${release_tag}"
+            else
+              publish=true
+            fi
+          else
+            release_tag=""
+            image_tag=""
+            release_title=""
+          fi
+
+          {
+            printf 'publish=%s\n' "${publish}"
+            printf 'sha=%s\n' "${sha}"
+            printf 'image_tag=%s\n' "${image_tag}"
+            printf 'release_tag=%s\n' "${release_tag}"
+            printf 'release_title=%s\n' "${release_title}"
+          } >> "$GITHUB_OUTPUT"
+
+  publish-image:
+    name: Publish Current Image
+    needs: resolve-publish-context
+    if: needs.resolve-publish-context.outputs.publish == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      packages: write
+    steps:
+      - name: Checkout the validated source commit
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          fetch-depth: 0
+          ref: ${{ needs.resolve-publish-context.outputs.sha }}
+
+      - name: Login to GitHub container registry
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3.7.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130 # v3.7.0
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3.12.0
+
+      - name: Build and publish the immutable current image
+        id: image
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6.19.2
+        with:
+          context: .
+          platforms: linux/arm64
+          push: true
+          provenance: mode=max
+          sbom: true
+          tags: ghcr.io/${{ github.repository_owner }}/container-builder-shim/builder:${{ needs.resolve-publish-context.outputs.image_tag }}
+          labels: |
+            org.opencontainers.image.revision=${{ needs.resolve-publish-context.outputs.sha }}
+            org.opencontainers.image.version=${{ needs.resolve-publish-context.outputs.image_tag }}
+          build-args: |
+            GIT_TAG=${{ needs.resolve-publish-context.outputs.image_tag }}
+            SOURCE_REPOSITORY=https://github.com/${{ github.repository }}
+          cache-from: type=gha,scope=container-builder-shim-linux-arm64
+          cache-to: type=gha,mode=max,scope=container-builder-shim-linux-arm64
+
+      - name: Write the image release manifest
+        env:
+          IMAGE_DIGEST: ${{ steps.image.outputs.digest }}
+          IMAGE_TAG: ${{ needs.resolve-publish-context.outputs.image_tag }}
+          SOURCE_SHA: ${{ needs.resolve-publish-context.outputs.sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          # shellcheck disable=SC2016 # Python source intentionally uses literal environment keys.
+          python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          manifest = {
+              "schema": 1,
+              "source": {
+                  "repository": os.environ["GITHUB_REPOSITORY"],
+                  "ref": os.environ["SOURCE_SHA"],
+              },
+              "image": {
+                  "repository": f"ghcr.io/{os.environ['GITHUB_REPOSITORY_OWNER']}/container-builder-shim/builder",
+                  "tag": os.environ["IMAGE_TAG"],
+                  "digest": os.environ["IMAGE_DIGEST"],
+              },
+          }
+          Path("container-builder-shim-current-image.json").write_text(
+              json.dumps(manifest, indent=2) + "\n", encoding="utf-8"
+          )
+          PY
+
+      - name: Publish current image manifest
+        env:
+          GH_TOKEN: ${{ github.token }}
+          IMAGE_DIGEST: ${{ steps.image.outputs.digest }}
+          IMAGE_TAG: ${{ needs.resolve-publish-context.outputs.image_tag }}
+          RELEASE_TAG: ${{ needs.resolve-publish-context.outputs.release_tag }}
+          RELEASE_TITLE: ${{ needs.resolve-publish-context.outputs.release_title }}
+          SOURCE_SHA: ${{ needs.resolve-publish-context.outputs.sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          notes="$(mktemp)"
+          {
+            printf '## Current builder image\n\n'
+            printf '%s\n\n' "Automated image for validated \`main\` commit \`${SOURCE_SHA}\`."
+            printf '%s\n' "Runtime releases must pin \`ghcr.io/${GITHUB_REPOSITORY_OWNER}/container-builder-shim/builder@${IMAGE_DIGEST}\`; the mutable tag \`${IMAGE_TAG}\` is discovery-only."
+          } > "$notes"
+
+          gh release create "${RELEASE_TAG}" \
+            container-builder-shim-current-image.json \
+            --repo "${GITHUB_REPOSITORY}" \
+            --target "${SOURCE_SHA}" \
+            --title "${RELEASE_TITLE}" \
+            --notes-file "$notes" \
+            --prerelease

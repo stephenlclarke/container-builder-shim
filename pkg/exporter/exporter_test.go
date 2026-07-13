@@ -61,6 +61,7 @@ func TestExporterProxy_Write_SendsBuildTransfer(t *testing.T) {
 	bt := captureExporter.payload.GetBuildTransfer()
 	if bt == nil {
 		t.Fatalf("expected BuildTransfer packet, got nil")
+		return
 	}
 	if bt.Direction != api.TransferDirection_OUTOF {
 		t.Fatalf("expected direction OUTOF, got %v", bt.Direction)
@@ -91,6 +92,7 @@ func TestExporterProxy_Write_EmptyMarksComplete(t *testing.T) {
 	bt := captureExporter.payload.GetBuildTransfer()
 	if bt == nil {
 		t.Fatalf("expected BuildTransfer packet, got nil")
+		return
 	}
 	if !bt.Complete {
 		t.Fatalf("completion packet should have Complete=true")

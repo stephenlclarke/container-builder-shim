@@ -89,6 +89,7 @@ func TestWrite_SendsStderrPacket(t *testing.T) {
 	got := lastRequest.payload.GetIo()
 	if got == nil {
 		t.Fatalf("no IO payload captured in request")
+		return
 	}
 	if got.Type != api.Stdio_STDERR {
 		t.Fatalf("expected packet type STDERR, got %v", got.Type)
