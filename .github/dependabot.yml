@@ -11,3 +11,15 @@ updates:
     commit-message:
       prefix: "ci"
     open-pull-requests-limit: 5
+
+  - package-ecosystem: "gomod"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    groups:
+      go-modules:
+        patterns:
+          - "*"
+    commit-message:
+      prefix: "chore(go)"
+    open-pull-requests-limit: 5
