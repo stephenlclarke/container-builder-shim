@@ -236,7 +236,7 @@ type BOpts struct {
 	ContextDir     string
 	BuildPlatforms []ocispecs.Platform
 	Platforms      []ocispecs.Platform
-	NoCache        bool
+	NoCache        *string
 	Target         string
 	BuildArgs      map[string]string
 	BuildContexts  map[string]string
@@ -307,9 +307,10 @@ func NewBuildOpts(ctx context.Context, basePath string, contextMap map[string][]
 		return nil, ErrInvalidProgress
 	}
 
-	noCache := false
-	if _, ok := first(KeyNoCache); ok {
-		noCache = true
+	var noCache *string
+	if values, ok := contextMap[KeyNoCache]; ok {
+		value := lastMetadataValue(values)
+		noCache = &value
 	}
 
 	tag, ok := first(KeyTag)
@@ -560,6 +561,9 @@ func (b *BOpts) dockerfileFrontendAttrs() map[string]string {
 	}
 	if len(b.Ulimits) > 0 {
 		attrs["ulimit"] = strings.Join(b.Ulimits, ",")
+	}
+	if b.NoCache != nil {
+		attrs["no-cache"] = *b.NoCache
 	}
 	return attrs
 }
