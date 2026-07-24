@@ -147,9 +147,6 @@ func Build(ctx context.Context, opts *BOpts) error {
 		KeyContentStoreName: opts.ContentStore,
 	}
 
-	if opts.NoCache {
-		solveOpt.FrontendAttrs["no-cache"] = ""
-	}
 	for k, v := range opts.dockerfileFrontendAttrs() {
 		solveOpt.FrontendAttrs[k] = v
 	}
