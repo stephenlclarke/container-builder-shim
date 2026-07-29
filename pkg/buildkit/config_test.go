@@ -45,3 +45,29 @@ func TestDefaultConfigMarshalKeepsExpectedKeys(t *testing.T) {
 		}
 	}
 }
+
+func TestDNSConfigMarshalKeepsBuildkitKeys(t *testing.T) {
+	config := DefaultConfig
+	config.DNS = &DNSConfig{
+		Nameservers:   []string{"127.0.0.1"},
+		Options:       []string{"ndots:1"},
+		SearchDomains: []string{"build.internal"},
+	}
+
+	data, err := toml.Marshal(config)
+	if err != nil {
+		t.Fatalf("toml.Marshal(config) error = %v", err)
+	}
+
+	output := string(data)
+	for _, want := range []string{
+		"[dns]",
+		"nameservers = ['127.0.0.1']",
+		"options = ['ndots:1']",
+		"searchDomains = ['build.internal']",
+	} {
+		if !strings.Contains(output, want) {
+			t.Fatalf("marshaled DNS config missing %q:\n%s", want, output)
+		}
+	}
+}

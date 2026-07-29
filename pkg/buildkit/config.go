@@ -66,10 +66,17 @@ type BuildkitdConfig struct {
 	Worker   *WorkerConfig             `toml:"worker,omitempty"`
 	Registry map[string]RegistryConfig `toml:"registry,omitempty"`
 	GRPC     *GRPCConfig               `toml:"grpc,omitempty"`
+	DNS      *DNSConfig                `toml:"dns,omitempty"`
 }
 
 type GRPCConfig struct {
 	DebugAddress string `toml:"debugAddress,omitempty"`
+}
+
+type DNSConfig struct {
+	Nameservers   []string `toml:"nameservers,omitempty"`
+	Options       []string `toml:"options,omitempty"`
+	SearchDomains []string `toml:"searchDomains,omitempty"`
 }
 
 type OCIWorkerConfig struct {

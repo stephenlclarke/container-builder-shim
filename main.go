@@ -46,6 +46,9 @@ var (
 	buildkitdPath   = "/usr/bin/buildkitd"
 	basePath        = "/var/lib/container-builder-shim"
 	registryMirrors = []string{}
+	dnsNameservers  = []string{}
+	dnsOptions      = []string{}
+	dnsSearch       = []string{}
 	vsockPort       = 8088
 	vsockMode       = false
 )
@@ -107,6 +110,13 @@ var app = &cobra.Command{
 				rc.Mirrors = append(rc.Mirrors, value)
 
 				config.Registry[key] = rc
+			}
+			if len(dnsNameservers) > 0 || len(dnsOptions) > 0 || len(dnsSearch) > 0 {
+				config.DNS = &buildkit.DNSConfig{
+					Nameservers:   dnsNameservers,
+					Options:       dnsOptions,
+					SearchDomains: dnsSearch,
+				}
 			}
 			if debug {
 				config.Debug = true
@@ -183,6 +193,9 @@ func init() {
 	app.Flags().StringVarP(&socketPath, "socket", "s", socketPath, "socket path for shim listener")
 	app.Flags().StringVarP(&buildkitdPath, "buildkitd-path", "b", buildkitdPath, "path to buildkitd binary")
 	app.Flags().StringSliceVarP(&registryMirrors, "registry-mirrors", "r", registryMirrors, "list of registry mirrors in k=v pairs")
+	app.Flags().StringSliceVar(&dnsNameservers, "dns-nameserver", dnsNameservers, "DNS nameserver for BuildKit execution")
+	app.Flags().StringSliceVar(&dnsOptions, "dns-option", dnsOptions, "DNS resolver option for BuildKit execution")
+	app.Flags().StringSliceVar(&dnsSearch, "dns-search-domain", dnsSearch, "DNS search domain for BuildKit execution")
 }
 
 func main() {
