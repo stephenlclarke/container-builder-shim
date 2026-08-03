@@ -1,4 +1,13 @@
-# container-builder-shim
+<!-- markdownlint-disable MD033 -->
+<h1>
+  <img
+    alt="container-builder-shim icon: frosted coupling and container panel"
+    src="docs/images/container-builder-shim-icon.png"
+    width="70"
+    valign="middle">
+  &nbsp;container-builder-shim
+</h1>
+<!-- markdownlint-enable MD033 -->
 
 **container-builder-shim** is a lightweight bridge that connects BuildKit's session protocol with containerization's Build API. It enables compatibility between BuildKit (the build engine behind Docker) and containerization by translating messages and file transfers between their respective APIs.
 
