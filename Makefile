@@ -86,6 +86,14 @@ coverage:
 	$(GO) test -coverprofile=coverage.out $(PKG)
 	$(GO) tool cover -func=coverage.out
 
+.PHONY: docs
+docs: ## Build the static DocC developer guide.
+	./scripts/make-docs.sh _site api/container-builder-shim
+
+.PHONY: serve-docs
+serve-docs: docs ## Serve the DocC developer guide locally.
+	python3 -m http.server 8000 --directory _site
+
 .PHONY: protos
 protos: proto-all
 
@@ -118,4 +126,4 @@ release: fmt vet lint test image
 .PHONY: clean
 clean:
 	$(GO) clean
-	rm -rf $(BUILD_DIR) coverage.out
+	rm -rf $(BUILD_DIR) _site coverage.out
