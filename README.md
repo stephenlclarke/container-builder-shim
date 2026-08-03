@@ -30,6 +30,14 @@ binaries and images in this stack are release-quality artifacts.
 - **Exporter:** Provides the final built image, including metadata and manifests.
 - **IO Stream:** Streams real-time build logs and progress updates.
 
+## Documentation
+
+Browse the [container-builder-shim DocC developer guide](https://stephenlclarke.github.io/api/container-builder-shim/) in the integrated container developer API collection. The guide documents the Go package boundaries and links to the fork source; DocC does not synthesize Swift symbol pages for the Go implementation.
+
+The generated guide follows [Stephen's fork](https://github.com/stephenlclarke/container-builder-shim). Use the [Apple upstream repository](https://github.com/apple/container-builder-shim) as the secondary reference for the original project.
+
+Build the same static guide locally with `make docs`, then run `make serve-docs` and open <http://localhost:8000/>.
+
 ## How It Works
 
 ```mermaid
