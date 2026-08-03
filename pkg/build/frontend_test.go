@@ -386,9 +386,19 @@ func TestGlobalArgs(t *testing.T) {
 }
 
 func TestExtractSSHAgentConfigs(t *testing.T) {
-	configs := extractSSHAgentConfigs([]string{"default", "git=/tmp/ssh-agent.sock", "/tmp/default-agent.sock"})
+	configs, err := extractSSHAgentConfigs(nil)
+	if err != nil {
+		t.Fatalf("extractSSHAgentConfigs(nil) error = %v, want nil", err)
+	}
+	if configs != nil {
+		t.Fatalf("extractSSHAgentConfigs(nil) = %v, want nil", configs)
+	}
 
-	if got, want := len(configs), 3; got != want {
+	configs, err = extractSSHAgentConfigs([]string{"default"})
+	if err != nil {
+		t.Fatalf("extractSSHAgentConfigs(default) error = %v, want nil", err)
+	}
+	if got, want := len(configs), 1; got != want {
 		t.Fatalf("len(opts.SSH) = %d, want %d", got, want)
 	}
 	if got, want := configs[0].ID, "default"; got != want {
@@ -397,17 +407,15 @@ func TestExtractSSHAgentConfigs(t *testing.T) {
 	if len(configs[0].Paths) != 0 {
 		t.Fatalf("opts.SSH[0].Paths = %v, want empty", configs[0].Paths)
 	}
-	if got, want := configs[1].ID, "git"; got != want {
-		t.Fatalf("opts.SSH[1].ID = %q, want %q", got, want)
-	}
-	if got, want := configs[1].Paths, []string{"/tmp/ssh-agent.sock"}; !reflect.DeepEqual(got, want) {
-		t.Fatalf("opts.SSH[1].Paths = %v, want %v", got, want)
-	}
-	if got, want := configs[2].ID, "default"; got != want {
-		t.Fatalf("opts.SSH[2].ID = %q, want %q", got, want)
-	}
-	if got, want := configs[2].Paths, []string{"/tmp/default-agent.sock"}; !reflect.DeepEqual(got, want) {
-		t.Fatalf("opts.SSH[2].Paths = %v, want %v", got, want)
+
+	for _, values := range [][]string{
+		{"git=/tmp/ssh-agent.sock"},
+		{"/tmp/default-agent.sock"},
+		{"default", "git=/tmp/ssh-agent.sock"},
+	} {
+		if _, err := extractSSHAgentConfigs(values); err != ErrUnsupportedSSH {
+			t.Fatalf("extractSSHAgentConfigs(%v) error = %v, want %v", values, err, ErrUnsupportedSSH)
+		}
 	}
 }
 

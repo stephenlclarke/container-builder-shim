@@ -113,9 +113,12 @@ type bOptsContextKey struct{}
 
 var keyBOpts bOptsContextKey
 
-func extractSSHAgentConfigs(values []string) []sshprovider.AgentConfig {
+func extractSSHAgentConfigs(values []string) ([]sshprovider.AgentConfig, error) {
 	if len(values) == 0 {
-		return nil
+		return nil, nil
+	}
+	if len(values) != 1 || strings.TrimSpace(values[0]) != "default" {
+		return nil, ErrUnsupportedSSH
 	}
 	agentConfigs := make([]sshprovider.AgentConfig, 0, len(values))
 	for _, value := range values {
@@ -138,7 +141,7 @@ func extractSSHAgentConfigs(values []string) []sshprovider.AgentConfig {
 		}
 		agentConfigs = append(agentConfigs, config)
 	}
-	return agentConfigs
+	return agentConfigs, nil
 }
 
 func extractAttestations(contextMap map[string][]string) (map[string]string, error) {
@@ -401,7 +404,10 @@ func NewBuildOpts(ctx context.Context, basePath string, contextMap map[string][]
 	if err != nil {
 		return nil, err
 	}
-	ssh := extractSSHAgentConfigs(contextMap[KeySSH])
+	ssh, err := extractSSHAgentConfigs(contextMap[KeySSH])
+	if err != nil {
+		return nil, err
+	}
 	network, err := normalizedNetworkMode(lastMetadataValue(contextMap[KeyNetwork]))
 	if err != nil {
 		return nil, err

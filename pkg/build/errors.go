@@ -30,4 +30,5 @@ var (
 	ErrInvalidProgress           = fmt.Errorf("build arg progress value is invalid")
 	ErrInvalidBuildContext       = fmt.Errorf("build context must use name=source")
 	ErrInvalidNetworkMode        = fmt.Errorf("build network mode is invalid")
+	ErrUnsupportedSSH            = fmt.Errorf("build arg ssh value is not supported")
 )
