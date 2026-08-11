@@ -117,31 +117,51 @@ func extractSSHAgentConfigs(values []string) ([]sshprovider.AgentConfig, error) 
 	if len(values) == 0 {
 		return nil, nil
 	}
-	if len(values) != 1 || strings.TrimSpace(values[0]) != "default" {
-		return nil, ErrUnsupportedSSH
-	}
 	agentConfigs := make([]sshprovider.AgentConfig, 0, len(values))
+	seenIDs := make(map[string]struct{}, len(values))
 	for _, value := range values {
+		value = strings.TrimSpace(value)
+		if value == "default" {
+			if _, exists := seenIDs["default"]; exists {
+				return nil, ErrUnsupportedSSH
+			}
+			seenIDs["default"] = struct{}{}
+			agentConfigs = append(agentConfigs, sshprovider.AgentConfig{ID: "default"})
+			continue
+		}
+
 		id, path, hasPath := strings.Cut(value, "=")
 		id = strings.TrimSpace(id)
 		path = strings.TrimSpace(path)
-		if !hasPath && strings.HasPrefix(id, "/") {
-			path = id
-			id = "default"
-			hasPath = true
+		if !hasPath || id == "" || !isForwardedSSHSocketPath(path) {
+			return nil, ErrUnsupportedSSH
 		}
-		if id == "" {
-			id = "default"
+		if _, exists := seenIDs[id]; exists {
+			return nil, ErrUnsupportedSSH
 		}
+		seenIDs[id] = struct{}{}
 		config := sshprovider.AgentConfig{
-			ID: id,
-		}
-		if hasPath && path != "" {
-			config.Paths = []string{path}
+			ID:    id,
+			Paths: []string{path},
 		}
 		agentConfigs = append(agentConfigs, config)
 	}
 	return agentConfigs, nil
+}
+
+func isForwardedSSHSocketPath(path string) bool {
+	const socketDirectory = "/var/host-services/"
+	const socketPrefix = "ssh-auth"
+	const socketSuffix = ".sock"
+
+	if !strings.HasPrefix(path, socketDirectory) {
+		return false
+	}
+	name := strings.TrimPrefix(path, socketDirectory)
+	if name == "" || strings.Contains(name, "/") {
+		return false
+	}
+	return strings.HasPrefix(name, socketPrefix) && strings.HasSuffix(name, socketSuffix)
 }
 
 func extractAttestations(contextMap map[string][]string) (map[string]string, error) {

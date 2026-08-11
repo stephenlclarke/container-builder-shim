@@ -408,10 +408,38 @@ func TestExtractSSHAgentConfigs(t *testing.T) {
 		t.Fatalf("opts.SSH[0].Paths = %v, want empty", configs[0].Paths)
 	}
 
+	configs, err = extractSSHAgentConfigs([]string{
+		"default=/var/host-services/ssh-auth.sock",
+		"git=/var/host-services/ssh-auth-git.sock",
+	})
+	if err != nil {
+		t.Fatalf("extractSSHAgentConfigs(forwarded sockets) error = %v, want nil", err)
+	}
+	if got, want := len(configs), 2; got != want {
+		t.Fatalf("len(opts.SSH) = %d, want %d", got, want)
+	}
+	if got, want := configs[0].ID, "default"; got != want {
+		t.Fatalf("opts.SSH[0].ID = %q, want %q", got, want)
+	}
+	if got, want := configs[0].Paths, []string{"/var/host-services/ssh-auth.sock"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("opts.SSH[0].Paths = %v, want %v", got, want)
+	}
+	if got, want := configs[1].ID, "git"; got != want {
+		t.Fatalf("opts.SSH[1].ID = %q, want %q", got, want)
+	}
+	if got, want := configs[1].Paths, []string{"/var/host-services/ssh-auth-git.sock"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("opts.SSH[1].Paths = %v, want %v", got, want)
+	}
+
 	for _, values := range [][]string{
 		{"git=/tmp/ssh-agent.sock"},
 		{"/tmp/default-agent.sock"},
-		{"default", "git=/tmp/ssh-agent.sock"},
+		{"git"},
+		{"default", "default=/var/host-services/ssh-auth.sock"},
+		{"git=/var/host-services/ssh-auth-git.sock", "git=/var/host-services/ssh-auth-other.sock"},
+		{"git=/var/host-services/../host.sock"},
+		{"git=/var/host-services/ssh-auth-git.sock/extra"},
+		{"git=/var/host-services/not-ssh.sock"},
 	} {
 		if _, err := extractSSHAgentConfigs(values); err != ErrUnsupportedSSH {
 			t.Fatalf("extractSSHAgentConfigs(%v) error = %v, want %v", values, err, ErrUnsupportedSSH)
