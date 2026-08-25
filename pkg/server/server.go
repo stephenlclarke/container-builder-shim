@@ -21,16 +21,20 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"path/filepath"
 	"time"
 
 	"github.com/mdlayher/vsock"
 	"github.com/sirupsen/logrus"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/reflection"
+	"google.golang.org/grpc/status"
 
 	"github.com/apple/container-builder-shim/pkg/api"
 	"github.com/apple/container-builder-shim/pkg/build"
+	"github.com/apple/container-builder-shim/pkg/fileutils"
 	"github.com/apple/container-builder-shim/pkg/stream"
 )
 
@@ -102,6 +106,17 @@ func (b *BuilderProxy) PerformBuild(s api.Builder_PerformBuildServer) (err error
 
 func (b *BuilderProxy) Info(ctx context.Context, req *api.InfoRequest) (*api.InfoResponse, error) {
 	return &api.InfoResponse{}, nil
+}
+
+func (b *BuilderProxy) LookupContext(_ context.Context, req *api.LookupContextRequest) (*api.LookupContextResponse, error) {
+	present, err := fileutils.CachedContextPresent(filepath.Join(b.path, "fssync"), req.GetDigest())
+	if errors.Is(err, fileutils.ErrInvalidContextDigest) {
+		return nil, status.Error(codes.InvalidArgument, err.Error())
+	}
+	if err != nil {
+		return nil, status.Error(codes.Internal, err.Error())
+	}
+	return &api.LookupContextResponse{Present: present}, nil
 }
 
 func Run(ctx context.Context, basePath string, socketConfig SocketConfig) error {

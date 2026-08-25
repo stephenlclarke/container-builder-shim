@@ -29,6 +29,8 @@ type BuilderClient interface {
 	// to handling data exchange with the server during the build.
 	PerformBuild(ctx context.Context, opts ...grpc.CallOption) (Builder_PerformBuildClient, error)
 	Info(ctx context.Context, in *InfoRequest, opts ...grpc.CallOption) (*InfoResponse, error)
+	// Check whether a content-addressed build context is already available.
+	LookupContext(ctx context.Context, in *LookupContextRequest, opts ...grpc.CallOption) (*LookupContextResponse, error)
 }
 
 type builderClient struct {
@@ -88,6 +90,15 @@ func (c *builderClient) Info(ctx context.Context, in *InfoRequest, opts ...grpc.
 	return out, nil
 }
 
+func (c *builderClient) LookupContext(ctx context.Context, in *LookupContextRequest, opts ...grpc.CallOption) (*LookupContextResponse, error) {
+	out := new(LookupContextResponse)
+	err := c.cc.Invoke(ctx, "/com.apple.container.build.v1.Builder/LookupContext", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // BuilderServer is the server API for Builder service.
 // All implementations must embed UnimplementedBuilderServer
 // for forward compatibility
@@ -99,6 +110,8 @@ type BuilderServer interface {
 	// to handling data exchange with the server during the build.
 	PerformBuild(Builder_PerformBuildServer) error
 	Info(context.Context, *InfoRequest) (*InfoResponse, error)
+	// Check whether a content-addressed build context is already available.
+	LookupContext(context.Context, *LookupContextRequest) (*LookupContextResponse, error)
 	mustEmbedUnimplementedBuilderServer()
 }
 
@@ -114,6 +127,9 @@ func (UnimplementedBuilderServer) PerformBuild(Builder_PerformBuildServer) error
 }
 func (UnimplementedBuilderServer) Info(context.Context, *InfoRequest) (*InfoResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method Info not implemented")
+}
+func (UnimplementedBuilderServer) LookupContext(context.Context, *LookupContextRequest) (*LookupContextResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method LookupContext not implemented")
 }
 func (UnimplementedBuilderServer) mustEmbedUnimplementedBuilderServer() {}
 
@@ -190,6 +206,24 @@ func _Builder_Info_Handler(srv interface{}, ctx context.Context, dec func(interf
 	return interceptor(ctx, in, info, handler)
 }
 
+func _Builder_LookupContext_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(LookupContextRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(BuilderServer).LookupContext(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/com.apple.container.build.v1.Builder/LookupContext",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(BuilderServer).LookupContext(ctx, req.(*LookupContextRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // Builder_ServiceDesc is the grpc.ServiceDesc for Builder service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -204,6 +238,10 @@ var Builder_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "Info",
 			Handler:    _Builder_Info_Handler,
+		},
+		{
+			MethodName: "LookupContext",
+			Handler:    _Builder_LookupContext_Handler,
 		},
 	},
 	Streams: []grpc.StreamDesc{

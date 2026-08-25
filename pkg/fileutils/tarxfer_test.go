@@ -180,6 +180,129 @@ func TestReceiver_Receive_Success(t *testing.T) {
 	if fi, err := os.Stat(filepath.Join(cacheDir, "file1")); err != nil || !fi.Mode().IsRegular() {
 		t.Fatalf("extracted file missing or not regular: %v", err)
 	}
+	present, err := CachedContextPresent(tmpDir, checksum)
+	if err != nil || !present {
+		t.Fatalf("completed context was not published to the cache: present=%v err=%v", present, err)
+	}
+}
+
+func TestReceiver_Receive_CacheHitNeedsNoBody(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	demux := newDemux(ctx)
+
+	hash := strings.Repeat("a", sha256.Size*2)
+	cacheDir := filepath.Join(t.TempDir(), hash)
+	if err := os.MkdirAll(cacheDir, 0o755); err != nil {
+		t.Fatalf("create cache directory: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(cacheDir, "cached"), []byte("contents"), 0o644); err != nil {
+		t.Fatalf("write cached file: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(cacheDir, cacheCompletionMarker), []byte(cacheCompletionValue), 0o600); err != nil {
+		t.Fatalf("mark cached context: %v", err)
+	}
+
+	if err := demux.Accept(btPacket(nil, true, map[string]string{"hash": hash})); err != nil {
+		t.Fatalf("send cache-hit header: %v", err)
+	}
+
+	r := NewTarReceiver(filepath.Dir(cacheDir), demux)
+	var visited []string
+	checksum, err := r.Receive(ctx, func(path string, _ fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		visited = append(visited, path)
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("Receive returned error: %v", err)
+	}
+	if checksum != hash {
+		t.Fatalf("checksum mismatch: want %s, got %s", hash, checksum)
+	}
+	if len(visited) != 1 || visited[0] != "cached" {
+		t.Fatalf("unexpected visited paths: %v", visited)
+	}
+}
+
+func TestReceiver_Receive_CacheHitDrainsLegacyBody(t *testing.T) {
+	archive, err := makeTar()
+	if err != nil {
+		t.Fatalf("makeTar: %v", err)
+	}
+	hashBytes := sha256.Sum256(archive)
+	hash := hex.EncodeToString(hashBytes[:])
+	header := archive[:512]
+	body := archive[512:]
+
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	demux := newDemux(ctx)
+	producerErr := make(chan error, 1)
+	go func() {
+		if err := demux.Accept(btPacket(nil, false, map[string]string{"hash": hash})); err != nil {
+			producerErr <- err
+			return
+		}
+		if err := demux.Accept(btPacket(header, false, nil)); err != nil {
+			producerErr <- err
+			return
+		}
+		producerErr <- demux.Accept(btPacket(body, true, nil))
+	}()
+
+	cacheBase := t.TempDir()
+	cacheDir := filepath.Join(cacheBase, hash)
+	if err := os.MkdirAll(cacheDir, 0o755); err != nil {
+		t.Fatalf("create cache directory: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(cacheDir, "cached"), []byte("contents"), 0o644); err != nil {
+		t.Fatalf("write cached file: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(cacheDir, cacheCompletionMarker), []byte(cacheCompletionValue), 0o600); err != nil {
+		t.Fatalf("mark cached context: %v", err)
+	}
+
+	r := NewTarReceiver(cacheBase, demux)
+	var visited []string
+	checksum, err := r.Receive(ctx, func(path string, _ fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		visited = append(visited, path)
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("Receive returned error: %v", err)
+	}
+	if err := <-producerErr; err != nil {
+		t.Fatalf("legacy sender failed: %v", err)
+	}
+	if checksum != hash {
+		t.Fatalf("checksum mismatch: want %s, got %s", hash, checksum)
+	}
+	if len(visited) != 1 || visited[0] != "cached" {
+		t.Fatalf("unexpected visited paths: %v", visited)
+	}
+}
+
+func TestReceiver_Receive_CompleteHeaderRequiresCache(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	demux := newDemux(ctx)
+
+	hash := strings.Repeat("b", sha256.Size*2)
+	if err := demux.Accept(btPacket(nil, true, map[string]string{"hash": hash})); err != nil {
+		t.Fatalf("send cache-hit header: %v", err)
+	}
+
+	r := NewTarReceiver(t.TempDir(), demux)
+	_, err := r.Receive(ctx, func(string, fs.DirEntry, error) error { return nil })
+	if err == nil || !strings.Contains(err.Error(), "marked complete but is not cached") {
+		t.Fatalf("expected missing-cache protocol error, got %v", err)
+	}
 }
 
 func TestReceiver_Receive_DoesNotPersistSyntheticDockerfiles(t *testing.T) {
