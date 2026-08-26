@@ -99,11 +99,24 @@ service Builder {
   rpc PerformBuild(stream ClientStream) returns (stream ServerStream);
 
   rpc Info(InfoRequest) returns (InfoResponse);
+
+  // Check whether a content-addressed build context is already available.
+  rpc LookupContext(LookupContextRequest) returns (LookupContextResponse);
 }
 
 message InfoRequest {}
 
 message InfoResponse {}
+
+message LookupContextRequest {
+  // Lowercase hexadecimal SHA-256 digest of the context tar stream.
+  string digest = 1;
+}
+
+message LookupContextResponse {
+  // True when the unpacked context is available in the local cache.
+  bool present = 1;
+}
 
 message CreateBuildRequest {
   // The name of the build stage.

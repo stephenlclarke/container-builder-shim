@@ -236,6 +236,96 @@ func (*InfoResponse) Descriptor() ([]byte, []int) {
 	return file_Builder_proto_rawDescGZIP(), []int{1}
 }
 
+type LookupContextRequest struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Lowercase hexadecimal SHA-256 digest of the context tar stream.
+	Digest        string `protobuf:"bytes,1,opt,name=digest,proto3" json:"digest,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *LookupContextRequest) Reset() {
+	*x = LookupContextRequest{}
+	mi := &file_Builder_proto_msgTypes[2]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *LookupContextRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*LookupContextRequest) ProtoMessage() {}
+
+func (x *LookupContextRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_Builder_proto_msgTypes[2]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use LookupContextRequest.ProtoReflect.Descriptor instead.
+func (*LookupContextRequest) Descriptor() ([]byte, []int) {
+	return file_Builder_proto_rawDescGZIP(), []int{2}
+}
+
+func (x *LookupContextRequest) GetDigest() string {
+	if x != nil {
+		return x.Digest
+	}
+	return ""
+}
+
+type LookupContextResponse struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// True when the unpacked context is available in the local cache.
+	Present       bool `protobuf:"varint,1,opt,name=present,proto3" json:"present,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *LookupContextResponse) Reset() {
+	*x = LookupContextResponse{}
+	mi := &file_Builder_proto_msgTypes[3]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *LookupContextResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*LookupContextResponse) ProtoMessage() {}
+
+func (x *LookupContextResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_Builder_proto_msgTypes[3]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use LookupContextResponse.ProtoReflect.Descriptor instead.
+func (*LookupContextResponse) Descriptor() ([]byte, []int) {
+	return file_Builder_proto_rawDescGZIP(), []int{3}
+}
+
+func (x *LookupContextResponse) GetPresent() bool {
+	if x != nil {
+		return x.Present
+	}
+	return false
+}
+
 type CreateBuildRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// The name of the build stage.
@@ -254,7 +344,7 @@ type CreateBuildRequest struct {
 
 func (x *CreateBuildRequest) Reset() {
 	*x = CreateBuildRequest{}
-	mi := &file_Builder_proto_msgTypes[2]
+	mi := &file_Builder_proto_msgTypes[4]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -266,7 +356,7 @@ func (x *CreateBuildRequest) String() string {
 func (*CreateBuildRequest) ProtoMessage() {}
 
 func (x *CreateBuildRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_Builder_proto_msgTypes[2]
+	mi := &file_Builder_proto_msgTypes[4]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -279,7 +369,7 @@ func (x *CreateBuildRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CreateBuildRequest.ProtoReflect.Descriptor instead.
 func (*CreateBuildRequest) Descriptor() ([]byte, []int) {
-	return file_Builder_proto_rawDescGZIP(), []int{2}
+	return file_Builder_proto_rawDescGZIP(), []int{4}
 }
 
 func (x *CreateBuildRequest) GetStageName() string {
@@ -329,7 +419,7 @@ type CreateBuildResponse struct {
 
 func (x *CreateBuildResponse) Reset() {
 	*x = CreateBuildResponse{}
-	mi := &file_Builder_proto_msgTypes[3]
+	mi := &file_Builder_proto_msgTypes[5]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -341,7 +431,7 @@ func (x *CreateBuildResponse) String() string {
 func (*CreateBuildResponse) ProtoMessage() {}
 
 func (x *CreateBuildResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_Builder_proto_msgTypes[3]
+	mi := &file_Builder_proto_msgTypes[5]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -354,7 +444,7 @@ func (x *CreateBuildResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CreateBuildResponse.ProtoReflect.Descriptor instead.
 func (*CreateBuildResponse) Descriptor() ([]byte, []int) {
-	return file_Builder_proto_rawDescGZIP(), []int{3}
+	return file_Builder_proto_rawDescGZIP(), []int{5}
 }
 
 func (x *CreateBuildResponse) GetBuildId() string {
@@ -390,7 +480,7 @@ type ClientStream struct {
 
 func (x *ClientStream) Reset() {
 	*x = ClientStream{}
-	mi := &file_Builder_proto_msgTypes[4]
+	mi := &file_Builder_proto_msgTypes[6]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -402,7 +492,7 @@ func (x *ClientStream) String() string {
 func (*ClientStream) ProtoMessage() {}
 
 func (x *ClientStream) ProtoReflect() protoreflect.Message {
-	mi := &file_Builder_proto_msgTypes[4]
+	mi := &file_Builder_proto_msgTypes[6]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -415,7 +505,7 @@ func (x *ClientStream) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ClientStream.ProtoReflect.Descriptor instead.
 func (*ClientStream) Descriptor() ([]byte, []int) {
-	return file_Builder_proto_rawDescGZIP(), []int{4}
+	return file_Builder_proto_rawDescGZIP(), []int{6}
 }
 
 func (x *ClientStream) GetBuildId() string {
@@ -507,7 +597,7 @@ type Signal struct {
 
 func (x *Signal) Reset() {
 	*x = Signal{}
-	mi := &file_Builder_proto_msgTypes[5]
+	mi := &file_Builder_proto_msgTypes[7]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -519,7 +609,7 @@ func (x *Signal) String() string {
 func (*Signal) ProtoMessage() {}
 
 func (x *Signal) ProtoReflect() protoreflect.Message {
-	mi := &file_Builder_proto_msgTypes[5]
+	mi := &file_Builder_proto_msgTypes[7]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -532,7 +622,7 @@ func (x *Signal) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Signal.ProtoReflect.Descriptor instead.
 func (*Signal) Descriptor() ([]byte, []int) {
-	return file_Builder_proto_rawDescGZIP(), []int{5}
+	return file_Builder_proto_rawDescGZIP(), []int{7}
 }
 
 func (x *Signal) GetSignal() int32 {
@@ -554,7 +644,7 @@ type Run struct {
 
 func (x *Run) Reset() {
 	*x = Run{}
-	mi := &file_Builder_proto_msgTypes[6]
+	mi := &file_Builder_proto_msgTypes[8]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -566,7 +656,7 @@ func (x *Run) String() string {
 func (*Run) ProtoMessage() {}
 
 func (x *Run) ProtoReflect() protoreflect.Message {
-	mi := &file_Builder_proto_msgTypes[6]
+	mi := &file_Builder_proto_msgTypes[8]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -579,7 +669,7 @@ func (x *Run) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Run.ProtoReflect.Descriptor instead.
 func (*Run) Descriptor() ([]byte, []int) {
-	return file_Builder_proto_rawDescGZIP(), []int{6}
+	return file_Builder_proto_rawDescGZIP(), []int{8}
 }
 
 func (x *Run) GetId() string {
@@ -606,7 +696,7 @@ type RunComplete struct {
 
 func (x *RunComplete) Reset() {
 	*x = RunComplete{}
-	mi := &file_Builder_proto_msgTypes[7]
+	mi := &file_Builder_proto_msgTypes[9]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -618,7 +708,7 @@ func (x *RunComplete) String() string {
 func (*RunComplete) ProtoMessage() {}
 
 func (x *RunComplete) ProtoReflect() protoreflect.Message {
-	mi := &file_Builder_proto_msgTypes[7]
+	mi := &file_Builder_proto_msgTypes[9]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -631,7 +721,7 @@ func (x *RunComplete) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RunComplete.ProtoReflect.Descriptor instead.
 func (*RunComplete) Descriptor() ([]byte, []int) {
-	return file_Builder_proto_rawDescGZIP(), []int{7}
+	return file_Builder_proto_rawDescGZIP(), []int{9}
 }
 
 func (x *RunComplete) GetId() string {
@@ -666,7 +756,7 @@ type BuildTransfer struct {
 
 func (x *BuildTransfer) Reset() {
 	*x = BuildTransfer{}
-	mi := &file_Builder_proto_msgTypes[8]
+	mi := &file_Builder_proto_msgTypes[10]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -678,7 +768,7 @@ func (x *BuildTransfer) String() string {
 func (*BuildTransfer) ProtoMessage() {}
 
 func (x *BuildTransfer) ProtoReflect() protoreflect.Message {
-	mi := &file_Builder_proto_msgTypes[8]
+	mi := &file_Builder_proto_msgTypes[10]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -691,7 +781,7 @@ func (x *BuildTransfer) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use BuildTransfer.ProtoReflect.Descriptor instead.
 func (*BuildTransfer) Descriptor() ([]byte, []int) {
-	return file_Builder_proto_rawDescGZIP(), []int{8}
+	return file_Builder_proto_rawDescGZIP(), []int{10}
 }
 
 func (x *BuildTransfer) GetId() string {
@@ -773,7 +863,7 @@ type ImageTransfer struct {
 
 func (x *ImageTransfer) Reset() {
 	*x = ImageTransfer{}
-	mi := &file_Builder_proto_msgTypes[9]
+	mi := &file_Builder_proto_msgTypes[11]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -785,7 +875,7 @@ func (x *ImageTransfer) String() string {
 func (*ImageTransfer) ProtoMessage() {}
 
 func (x *ImageTransfer) ProtoReflect() protoreflect.Message {
-	mi := &file_Builder_proto_msgTypes[9]
+	mi := &file_Builder_proto_msgTypes[11]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -798,7 +888,7 @@ func (x *ImageTransfer) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ImageTransfer.ProtoReflect.Descriptor instead.
 func (*ImageTransfer) Descriptor() ([]byte, []int) {
-	return file_Builder_proto_rawDescGZIP(), []int{9}
+	return file_Builder_proto_rawDescGZIP(), []int{11}
 }
 
 func (x *ImageTransfer) GetId() string {
@@ -870,7 +960,7 @@ type ServerStream struct {
 
 func (x *ServerStream) Reset() {
 	*x = ServerStream{}
-	mi := &file_Builder_proto_msgTypes[10]
+	mi := &file_Builder_proto_msgTypes[12]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -882,7 +972,7 @@ func (x *ServerStream) String() string {
 func (*ServerStream) ProtoMessage() {}
 
 func (x *ServerStream) ProtoReflect() protoreflect.Message {
-	mi := &file_Builder_proto_msgTypes[10]
+	mi := &file_Builder_proto_msgTypes[12]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -895,7 +985,7 @@ func (x *ServerStream) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ServerStream.ProtoReflect.Descriptor instead.
 func (*ServerStream) Descriptor() ([]byte, []int) {
-	return file_Builder_proto_rawDescGZIP(), []int{10}
+	return file_Builder_proto_rawDescGZIP(), []int{12}
 }
 
 func (x *ServerStream) GetBuildId() string {
@@ -1003,7 +1093,7 @@ type IO struct {
 
 func (x *IO) Reset() {
 	*x = IO{}
-	mi := &file_Builder_proto_msgTypes[11]
+	mi := &file_Builder_proto_msgTypes[13]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1015,7 +1105,7 @@ func (x *IO) String() string {
 func (*IO) ProtoMessage() {}
 
 func (x *IO) ProtoReflect() protoreflect.Message {
-	mi := &file_Builder_proto_msgTypes[11]
+	mi := &file_Builder_proto_msgTypes[13]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1028,7 +1118,7 @@ func (x *IO) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use IO.ProtoReflect.Descriptor instead.
 func (*IO) Descriptor() ([]byte, []int) {
-	return file_Builder_proto_rawDescGZIP(), []int{11}
+	return file_Builder_proto_rawDescGZIP(), []int{13}
 }
 
 func (x *IO) GetType() Stdio {
@@ -1057,7 +1147,7 @@ type BuildError struct {
 
 func (x *BuildError) Reset() {
 	*x = BuildError{}
-	mi := &file_Builder_proto_msgTypes[12]
+	mi := &file_Builder_proto_msgTypes[14]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1069,7 +1159,7 @@ func (x *BuildError) String() string {
 func (*BuildError) ProtoMessage() {}
 
 func (x *BuildError) ProtoReflect() protoreflect.Message {
-	mi := &file_Builder_proto_msgTypes[12]
+	mi := &file_Builder_proto_msgTypes[14]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1082,7 +1172,7 @@ func (x *BuildError) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use BuildError.ProtoReflect.Descriptor instead.
 func (*BuildError) Descriptor() ([]byte, []int) {
-	return file_Builder_proto_rawDescGZIP(), []int{12}
+	return file_Builder_proto_rawDescGZIP(), []int{14}
 }
 
 func (x *BuildError) GetType() BuildErrorType {
@@ -1113,7 +1203,7 @@ type Platform struct {
 
 func (x *Platform) Reset() {
 	*x = Platform{}
-	mi := &file_Builder_proto_msgTypes[13]
+	mi := &file_Builder_proto_msgTypes[15]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1125,7 +1215,7 @@ func (x *Platform) String() string {
 func (*Platform) ProtoMessage() {}
 
 func (x *Platform) ProtoReflect() protoreflect.Message {
-	mi := &file_Builder_proto_msgTypes[13]
+	mi := &file_Builder_proto_msgTypes[15]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1138,7 +1228,7 @@ func (x *Platform) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Platform.ProtoReflect.Descriptor instead.
 func (*Platform) Descriptor() ([]byte, []int) {
-	return file_Builder_proto_rawDescGZIP(), []int{13}
+	return file_Builder_proto_rawDescGZIP(), []int{15}
 }
 
 func (x *Platform) GetArchitecture() string {
@@ -1191,7 +1281,7 @@ type Descriptor struct {
 
 func (x *Descriptor) Reset() {
 	*x = Descriptor{}
-	mi := &file_Builder_proto_msgTypes[14]
+	mi := &file_Builder_proto_msgTypes[16]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1203,7 +1293,7 @@ func (x *Descriptor) String() string {
 func (*Descriptor) ProtoMessage() {}
 
 func (x *Descriptor) ProtoReflect() protoreflect.Message {
-	mi := &file_Builder_proto_msgTypes[14]
+	mi := &file_Builder_proto_msgTypes[16]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1216,7 +1306,7 @@ func (x *Descriptor) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Descriptor.ProtoReflect.Descriptor instead.
 func (*Descriptor) Descriptor() ([]byte, []int) {
-	return file_Builder_proto_rawDescGZIP(), []int{14}
+	return file_Builder_proto_rawDescGZIP(), []int{16}
 }
 
 func (x *Descriptor) GetMediaType() string {
@@ -1267,7 +1357,11 @@ const file_Builder_proto_rawDesc = "" +
 	"\n" +
 	"\rBuilder.proto\x12\x1ccom.apple.container.build.v1\"\r\n" +
 	"\vInfoRequest\"\x0e\n" +
-	"\fInfoResponse\"\x93\x02\n" +
+	"\fInfoResponse\".\n" +
+	"\x14LookupContextRequest\x12\x16\n" +
+	"\x06digest\x18\x01 \x01(\tR\x06digest\"1\n" +
+	"\x15LookupContextResponse\x12\x18\n" +
+	"\apresent\x18\x01 \x01(\bR\apresent\"\x93\x02\n" +
 	"\x12CreateBuildRequest\x12\x1d\n" +
 	"\n" +
 	"stage_name\x18\x01 \x01(\tR\tstageName\x12\x10\n" +
@@ -1374,11 +1468,12 @@ const file_Builder_proto_rawDesc = "" +
 	"\x06STDERR\x10\x02*0\n" +
 	"\x0eBuildErrorType\x12\x10\n" +
 	"\fBUILD_FAILED\x10\x00\x12\f\n" +
-	"\bINTERNAL\x10\x012\xc8\x02\n" +
+	"\bINTERNAL\x10\x012\xc2\x03\n" +
 	"\aBuilder\x12r\n" +
 	"\vCreateBuild\x120.com.apple.container.build.v1.CreateBuildRequest\x1a1.com.apple.container.build.v1.CreateBuildResponse\x12j\n" +
 	"\fPerformBuild\x12*.com.apple.container.build.v1.ClientStream\x1a*.com.apple.container.build.v1.ServerStream(\x010\x01\x12]\n" +
-	"\x04Info\x12).com.apple.container.build.v1.InfoRequest\x1a*.com.apple.container.build.v1.InfoResponseB\rZ\vpkg/api;apib\x06proto3"
+	"\x04Info\x12).com.apple.container.build.v1.InfoRequest\x1a*.com.apple.container.build.v1.InfoResponse\x12x\n" +
+	"\rLookupContext\x122.com.apple.container.build.v1.LookupContextRequest\x1a3.com.apple.container.build.v1.LookupContextResponseB\rZ\vpkg/api;apib\x06proto3"
 
 var (
 	file_Builder_proto_rawDescOnce sync.Once
@@ -1393,61 +1488,65 @@ func file_Builder_proto_rawDescGZIP() []byte {
 }
 
 var file_Builder_proto_enumTypes = make([]protoimpl.EnumInfo, 3)
-var file_Builder_proto_msgTypes = make([]protoimpl.MessageInfo, 20)
+var file_Builder_proto_msgTypes = make([]protoimpl.MessageInfo, 22)
 var file_Builder_proto_goTypes = []any{
-	(TransferDirection)(0),      // 0: com.apple.container.build.v1.TransferDirection
-	(Stdio)(0),                  // 1: com.apple.container.build.v1.Stdio
-	(BuildErrorType)(0),         // 2: com.apple.container.build.v1.BuildErrorType
-	(*InfoRequest)(nil),         // 3: com.apple.container.build.v1.InfoRequest
-	(*InfoResponse)(nil),        // 4: com.apple.container.build.v1.InfoResponse
-	(*CreateBuildRequest)(nil),  // 5: com.apple.container.build.v1.CreateBuildRequest
-	(*CreateBuildResponse)(nil), // 6: com.apple.container.build.v1.CreateBuildResponse
-	(*ClientStream)(nil),        // 7: com.apple.container.build.v1.ClientStream
-	(*Signal)(nil),              // 8: com.apple.container.build.v1.Signal
-	(*Run)(nil),                 // 9: com.apple.container.build.v1.Run
-	(*RunComplete)(nil),         // 10: com.apple.container.build.v1.RunComplete
-	(*BuildTransfer)(nil),       // 11: com.apple.container.build.v1.BuildTransfer
-	(*ImageTransfer)(nil),       // 12: com.apple.container.build.v1.ImageTransfer
-	(*ServerStream)(nil),        // 13: com.apple.container.build.v1.ServerStream
-	(*IO)(nil),                  // 14: com.apple.container.build.v1.IO
-	(*BuildError)(nil),          // 15: com.apple.container.build.v1.BuildError
-	(*Platform)(nil),            // 16: com.apple.container.build.v1.Platform
-	(*Descriptor)(nil),          // 17: com.apple.container.build.v1.Descriptor
-	nil,                         // 18: com.apple.container.build.v1.CreateBuildRequest.MetadataEntry
-	nil,                         // 19: com.apple.container.build.v1.CreateBuildResponse.MetadataEntry
-	nil,                         // 20: com.apple.container.build.v1.BuildTransfer.MetadataEntry
-	nil,                         // 21: com.apple.container.build.v1.ImageTransfer.MetadataEntry
-	nil,                         // 22: com.apple.container.build.v1.Descriptor.AnnotationsEntry
+	(TransferDirection)(0),        // 0: com.apple.container.build.v1.TransferDirection
+	(Stdio)(0),                    // 1: com.apple.container.build.v1.Stdio
+	(BuildErrorType)(0),           // 2: com.apple.container.build.v1.BuildErrorType
+	(*InfoRequest)(nil),           // 3: com.apple.container.build.v1.InfoRequest
+	(*InfoResponse)(nil),          // 4: com.apple.container.build.v1.InfoResponse
+	(*LookupContextRequest)(nil),  // 5: com.apple.container.build.v1.LookupContextRequest
+	(*LookupContextResponse)(nil), // 6: com.apple.container.build.v1.LookupContextResponse
+	(*CreateBuildRequest)(nil),    // 7: com.apple.container.build.v1.CreateBuildRequest
+	(*CreateBuildResponse)(nil),   // 8: com.apple.container.build.v1.CreateBuildResponse
+	(*ClientStream)(nil),          // 9: com.apple.container.build.v1.ClientStream
+	(*Signal)(nil),                // 10: com.apple.container.build.v1.Signal
+	(*Run)(nil),                   // 11: com.apple.container.build.v1.Run
+	(*RunComplete)(nil),           // 12: com.apple.container.build.v1.RunComplete
+	(*BuildTransfer)(nil),         // 13: com.apple.container.build.v1.BuildTransfer
+	(*ImageTransfer)(nil),         // 14: com.apple.container.build.v1.ImageTransfer
+	(*ServerStream)(nil),          // 15: com.apple.container.build.v1.ServerStream
+	(*IO)(nil),                    // 16: com.apple.container.build.v1.IO
+	(*BuildError)(nil),            // 17: com.apple.container.build.v1.BuildError
+	(*Platform)(nil),              // 18: com.apple.container.build.v1.Platform
+	(*Descriptor)(nil),            // 19: com.apple.container.build.v1.Descriptor
+	nil,                           // 20: com.apple.container.build.v1.CreateBuildRequest.MetadataEntry
+	nil,                           // 21: com.apple.container.build.v1.CreateBuildResponse.MetadataEntry
+	nil,                           // 22: com.apple.container.build.v1.BuildTransfer.MetadataEntry
+	nil,                           // 23: com.apple.container.build.v1.ImageTransfer.MetadataEntry
+	nil,                           // 24: com.apple.container.build.v1.Descriptor.AnnotationsEntry
 }
 var file_Builder_proto_depIdxs = []int32{
-	18, // 0: com.apple.container.build.v1.CreateBuildRequest.metadata:type_name -> com.apple.container.build.v1.CreateBuildRequest.MetadataEntry
-	19, // 1: com.apple.container.build.v1.CreateBuildResponse.metadata:type_name -> com.apple.container.build.v1.CreateBuildResponse.MetadataEntry
-	8,  // 2: com.apple.container.build.v1.ClientStream.signal:type_name -> com.apple.container.build.v1.Signal
-	9,  // 3: com.apple.container.build.v1.ClientStream.command:type_name -> com.apple.container.build.v1.Run
-	11, // 4: com.apple.container.build.v1.ClientStream.build_transfer:type_name -> com.apple.container.build.v1.BuildTransfer
-	12, // 5: com.apple.container.build.v1.ClientStream.image_transfer:type_name -> com.apple.container.build.v1.ImageTransfer
+	20, // 0: com.apple.container.build.v1.CreateBuildRequest.metadata:type_name -> com.apple.container.build.v1.CreateBuildRequest.MetadataEntry
+	21, // 1: com.apple.container.build.v1.CreateBuildResponse.metadata:type_name -> com.apple.container.build.v1.CreateBuildResponse.MetadataEntry
+	10, // 2: com.apple.container.build.v1.ClientStream.signal:type_name -> com.apple.container.build.v1.Signal
+	11, // 3: com.apple.container.build.v1.ClientStream.command:type_name -> com.apple.container.build.v1.Run
+	13, // 4: com.apple.container.build.v1.ClientStream.build_transfer:type_name -> com.apple.container.build.v1.BuildTransfer
+	14, // 5: com.apple.container.build.v1.ClientStream.image_transfer:type_name -> com.apple.container.build.v1.ImageTransfer
 	0,  // 6: com.apple.container.build.v1.BuildTransfer.direction:type_name -> com.apple.container.build.v1.TransferDirection
-	20, // 7: com.apple.container.build.v1.BuildTransfer.metadata:type_name -> com.apple.container.build.v1.BuildTransfer.MetadataEntry
+	22, // 7: com.apple.container.build.v1.BuildTransfer.metadata:type_name -> com.apple.container.build.v1.BuildTransfer.MetadataEntry
 	0,  // 8: com.apple.container.build.v1.ImageTransfer.direction:type_name -> com.apple.container.build.v1.TransferDirection
-	17, // 9: com.apple.container.build.v1.ImageTransfer.descriptor:type_name -> com.apple.container.build.v1.Descriptor
-	21, // 10: com.apple.container.build.v1.ImageTransfer.metadata:type_name -> com.apple.container.build.v1.ImageTransfer.MetadataEntry
-	14, // 11: com.apple.container.build.v1.ServerStream.io:type_name -> com.apple.container.build.v1.IO
-	15, // 12: com.apple.container.build.v1.ServerStream.build_error:type_name -> com.apple.container.build.v1.BuildError
-	10, // 13: com.apple.container.build.v1.ServerStream.command_complete:type_name -> com.apple.container.build.v1.RunComplete
-	11, // 14: com.apple.container.build.v1.ServerStream.build_transfer:type_name -> com.apple.container.build.v1.BuildTransfer
-	12, // 15: com.apple.container.build.v1.ServerStream.image_transfer:type_name -> com.apple.container.build.v1.ImageTransfer
+	19, // 9: com.apple.container.build.v1.ImageTransfer.descriptor:type_name -> com.apple.container.build.v1.Descriptor
+	23, // 10: com.apple.container.build.v1.ImageTransfer.metadata:type_name -> com.apple.container.build.v1.ImageTransfer.MetadataEntry
+	16, // 11: com.apple.container.build.v1.ServerStream.io:type_name -> com.apple.container.build.v1.IO
+	17, // 12: com.apple.container.build.v1.ServerStream.build_error:type_name -> com.apple.container.build.v1.BuildError
+	12, // 13: com.apple.container.build.v1.ServerStream.command_complete:type_name -> com.apple.container.build.v1.RunComplete
+	13, // 14: com.apple.container.build.v1.ServerStream.build_transfer:type_name -> com.apple.container.build.v1.BuildTransfer
+	14, // 15: com.apple.container.build.v1.ServerStream.image_transfer:type_name -> com.apple.container.build.v1.ImageTransfer
 	1,  // 16: com.apple.container.build.v1.IO.type:type_name -> com.apple.container.build.v1.Stdio
 	2,  // 17: com.apple.container.build.v1.BuildError.type:type_name -> com.apple.container.build.v1.BuildErrorType
-	22, // 18: com.apple.container.build.v1.Descriptor.annotations:type_name -> com.apple.container.build.v1.Descriptor.AnnotationsEntry
-	16, // 19: com.apple.container.build.v1.Descriptor.platform:type_name -> com.apple.container.build.v1.Platform
-	5,  // 20: com.apple.container.build.v1.Builder.CreateBuild:input_type -> com.apple.container.build.v1.CreateBuildRequest
-	7,  // 21: com.apple.container.build.v1.Builder.PerformBuild:input_type -> com.apple.container.build.v1.ClientStream
+	24, // 18: com.apple.container.build.v1.Descriptor.annotations:type_name -> com.apple.container.build.v1.Descriptor.AnnotationsEntry
+	18, // 19: com.apple.container.build.v1.Descriptor.platform:type_name -> com.apple.container.build.v1.Platform
+	7,  // 20: com.apple.container.build.v1.Builder.CreateBuild:input_type -> com.apple.container.build.v1.CreateBuildRequest
+	9,  // 21: com.apple.container.build.v1.Builder.PerformBuild:input_type -> com.apple.container.build.v1.ClientStream
 	3,  // 22: com.apple.container.build.v1.Builder.Info:input_type -> com.apple.container.build.v1.InfoRequest
-	6,  // 23: com.apple.container.build.v1.Builder.CreateBuild:output_type -> com.apple.container.build.v1.CreateBuildResponse
-	13, // 24: com.apple.container.build.v1.Builder.PerformBuild:output_type -> com.apple.container.build.v1.ServerStream
-	4,  // 25: com.apple.container.build.v1.Builder.Info:output_type -> com.apple.container.build.v1.InfoResponse
-	23, // [23:26] is the sub-list for method output_type
-	20, // [20:23] is the sub-list for method input_type
+	5,  // 23: com.apple.container.build.v1.Builder.LookupContext:input_type -> com.apple.container.build.v1.LookupContextRequest
+	8,  // 24: com.apple.container.build.v1.Builder.CreateBuild:output_type -> com.apple.container.build.v1.CreateBuildResponse
+	15, // 25: com.apple.container.build.v1.Builder.PerformBuild:output_type -> com.apple.container.build.v1.ServerStream
+	4,  // 26: com.apple.container.build.v1.Builder.Info:output_type -> com.apple.container.build.v1.InfoResponse
+	6,  // 27: com.apple.container.build.v1.Builder.LookupContext:output_type -> com.apple.container.build.v1.LookupContextResponse
+	24, // [24:28] is the sub-list for method output_type
+	20, // [20:24] is the sub-list for method input_type
 	20, // [20:20] is the sub-list for extension type_name
 	20, // [20:20] is the sub-list for extension extendee
 	0,  // [0:20] is the sub-list for field type_name
@@ -1458,28 +1557,28 @@ func file_Builder_proto_init() {
 	if File_Builder_proto != nil {
 		return
 	}
-	file_Builder_proto_msgTypes[4].OneofWrappers = []any{
+	file_Builder_proto_msgTypes[6].OneofWrappers = []any{
 		(*ClientStream_Signal)(nil),
 		(*ClientStream_Command)(nil),
 		(*ClientStream_BuildTransfer)(nil),
 		(*ClientStream_ImageTransfer)(nil),
 	}
-	file_Builder_proto_msgTypes[8].OneofWrappers = []any{}
-	file_Builder_proto_msgTypes[10].OneofWrappers = []any{
+	file_Builder_proto_msgTypes[10].OneofWrappers = []any{}
+	file_Builder_proto_msgTypes[12].OneofWrappers = []any{
 		(*ServerStream_Io)(nil),
 		(*ServerStream_BuildError)(nil),
 		(*ServerStream_CommandComplete)(nil),
 		(*ServerStream_BuildTransfer)(nil),
 		(*ServerStream_ImageTransfer)(nil),
 	}
-	file_Builder_proto_msgTypes[14].OneofWrappers = []any{}
+	file_Builder_proto_msgTypes[16].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_Builder_proto_rawDesc), len(file_Builder_proto_rawDesc)),
 			NumEnums:      3,
-			NumMessages:   20,
+			NumMessages:   22,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

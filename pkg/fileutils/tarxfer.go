@@ -21,6 +21,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"io"
 	"io/fs"
@@ -39,6 +40,13 @@ const (
 	cacheCompletionValue  = "complete\n"
 )
 
+var ErrInvalidContextDigest = errors.New("invalid context digest")
+
+type tarStreamHeader struct {
+	checksum string
+	complete bool
+}
+
 // Receiver streams a tar archive from the macOS host, stores it in a
 // content-addressed cache under cacheBase, unpacks it, and walks the result.
 //
@@ -47,7 +55,7 @@ const (
 // intact. BuildKit decides at COPY/ADD time whether to dereference them based
 // on its own copy semantics.
 //
-// If the cache directory for the tar's content hash already exists the
+// If a completed cache entry for the tar's content hash already exists the
 // download is skipped and the cached tree is used directly.
 type Receiver struct {
 	demux     *stream.Demultiplexer
@@ -60,16 +68,16 @@ func NewTarReceiver(cacheBase string, demux *stream.Demultiplexer) *Receiver {
 
 func (r *Receiver) Receive(ctx context.Context, fn fs.WalkDirFunc) (string, error) {
 	errCh := make(chan error, 1)
-	hashCh := make(chan string, 1)
+	headerCh := make(chan tarStreamHeader, 1)
 	dataCh := make(chan []byte)
-	go startTar(r.demux, errCh, hashCh, dataCh)
+	go startTar(r.demux, errCh, headerCh, dataCh)
 
-	checksum, err := readTarHash(ctx, errCh, hashCh)
+	header, err := readTarStreamHeader(ctx, errCh, headerCh)
 	if err != nil {
 		return "", err
 	}
-
-	if err := validateChecksum(checksum); err != nil {
+	checksum := header.checksum
+	if err := validateContextDigest(checksum); err != nil {
 		return "", err
 	}
 	if err := os.MkdirAll(r.cacheBase, 0o755); err != nil {
@@ -77,20 +85,25 @@ func (r *Receiver) Receive(ctx context.Context, fn fs.WalkDirFunc) (string, erro
 	}
 
 	cacheDir := filepath.Join(r.cacheBase, checksum)
-
-	cached, err := checkCache(cacheDir)
+	cached, err := CachedContextPresent(r.cacheBase, checksum)
 	if err != nil {
 		return "", err
 	}
+	if header.complete {
+		if !cached {
+			return "", fmt.Errorf("context %s marked complete but is not cached", checksum)
+		}
+		return checksum, walkCachedContext(cacheDir, fn)
+	}
 
-	header, err := readTarHeader(ctx, errCh, dataCh)
+	tarHeader, err := readTarHeader(ctx, errCh, dataCh)
 	if err != nil {
 		return "", err
 	}
 
 	tarFile := ""
 	if !cached {
-		tarFile, err = writeTar(r.cacheBase, header)
+		tarFile, err = writeTar(r.cacheBase, tarHeader)
 		if err != nil {
 			return "", err
 		}
@@ -101,7 +114,6 @@ func (r *Receiver) Receive(ctx context.Context, fn fs.WalkDirFunc) (string, erro
 	if err != nil {
 		return "", err
 	}
-
 	if !cached {
 		if err := verifyTarHash(tarFile, checksum); err != nil {
 			return "", err
@@ -111,7 +123,11 @@ func (r *Receiver) Receive(ctx context.Context, fn fs.WalkDirFunc) (string, erro
 		}
 	}
 
-	return checksum, filepath.Walk(cacheDir, func(p string, info os.FileInfo, walkErr error) error {
+	return checksum, walkCachedContext(cacheDir, fn)
+}
+
+func walkCachedContext(cacheDir string, fn fs.WalkDirFunc) error {
+	return filepath.Walk(cacheDir, func(p string, info os.FileInfo, walkErr error) error {
 		if walkErr != nil {
 			return walkErr
 		}
@@ -141,9 +157,9 @@ func (r *Receiver) Receive(ctx context.Context, fn fs.WalkDirFunc) (string, erro
 	})
 }
 
-func startTar(demux *stream.Demultiplexer, errCh chan<- error, hashCh chan<- string, dataCh chan<- []byte) {
+func startTar(demux *stream.Demultiplexer, errCh chan<- error, headerCh chan<- tarStreamHeader, dataCh chan<- []byte) {
 	defer close(errCh)
-	defer close(hashCh)
+	defer close(headerCh)
 	defer close(dataCh)
 
 	for {
@@ -163,7 +179,11 @@ func startTar(demux *stream.Demultiplexer, errCh chan<- error, hashCh chan<- str
 			}
 
 			if hash, ok := bt.Metadata["hash"]; ok {
-				hashCh <- hash
+				headerCh <- tarStreamHeader{checksum: hash, complete: bt.Complete}
+				if bt.Complete {
+					errCh <- nil
+					return
+				}
 				continue
 			}
 
@@ -190,21 +210,27 @@ func startTar(demux *stream.Demultiplexer, errCh chan<- error, hashCh chan<- str
 	}
 }
 
-func readTarHash(ctx context.Context, errCh <-chan error, hashCh <-chan string) (string, error) {
-	select {
-	case h, ok := <-hashCh:
-		if !ok {
-			if e := <-errCh; e != nil {
-				return "", e
+func readTarStreamHeader(ctx context.Context, errCh <-chan error, headerCh <-chan tarStreamHeader) (tarStreamHeader, error) {
+	for headerCh != nil || errCh != nil {
+		select {
+		case header, ok := <-headerCh:
+			if ok {
+				return header, nil
 			}
-			return "", fmt.Errorf("hash channel closed, no hash received")
+			headerCh = nil
+		case e, ok := <-errCh:
+			if !ok {
+				errCh = nil
+				continue
+			}
+			if e != nil {
+				return tarStreamHeader{}, e
+			}
+		case <-ctx.Done():
+			return tarStreamHeader{}, ctx.Err()
 		}
-		return h, nil
-	case e := <-errCh:
-		return "", e
-	case <-ctx.Done():
-		return "", ctx.Err()
 	}
+	return tarStreamHeader{}, fmt.Errorf("header channel closed, no hash received")
 }
 
 func readTarHeader(ctx context.Context, errCh <-chan error, dataCh <-chan []byte) ([]byte, error) {
@@ -268,12 +294,23 @@ func readTarBody(ctx context.Context, errCh <-chan error, dataCh <-chan []byte, 
 }
 
 func validateChecksum(checksum string) error {
-	if len(checksum) != sha256.Size*2 {
-		return fmt.Errorf("invalid tar checksum: expected a SHA-256 digest")
+	return validateContextDigest(checksum)
+}
+
+func CachedContextPresent(cacheBase, checksum string) (bool, error) {
+	if err := validateContextDigest(checksum); err != nil {
+		return false, err
+	}
+	return checkCache(filepath.Join(cacheBase, checksum))
+}
+
+func validateContextDigest(checksum string) error {
+	if len(checksum) != hex.EncodedLen(sha256.Size) || strings.ToLower(checksum) != checksum {
+		return ErrInvalidContextDigest
 	}
 	decoded, err := hex.DecodeString(checksum)
-	if err != nil || hex.EncodeToString(decoded) != checksum {
-		return fmt.Errorf("invalid tar checksum: expected lowercase hexadecimal")
+	if err != nil || len(decoded) != sha256.Size {
+		return ErrInvalidContextDigest
 	}
 	return nil
 }
