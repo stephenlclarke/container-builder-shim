@@ -16,6 +16,8 @@ documentation under `docs/`.
 
 Tracking issue:
 [#13](https://github.com/stephenlclarke/container-builder-shim/issues/13).
+Implementation:
+[pull request 14](https://github.com/stephenlclarke/container-builder-shim/pull/14).
 
 Related release work:
 [Container Compose issue 332](https://github.com/stephenlclarke/container-compose/issues/332)
