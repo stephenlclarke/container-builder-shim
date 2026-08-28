@@ -17,8 +17,8 @@ The `stephenlclarke` fork supplies the immutable builder image selected by
 It is not installed as a Homebrew formula. The canonical stack map, current
 image pin, and release policy live in `container-compose`'s
 [README](https://github.com/stephenlclarke/container-compose#project-repositories),
-[STATUS.md](https://github.com/stephenlclarke/container-compose/blob/main/STATUS.md),
-and [BRANCHES.md](https://github.com/stephenlclarke/container-compose/blob/main/BRANCHES.md).
+[STATUS.md](https://github.com/stephenlclarke/container-compose/blob/main/docs/project/STATUS.md),
+and [build and worktree guide](https://github.com/stephenlclarke/container-compose/blob/main/docs/guides/BUILD.md).
 Publish new shim work as a tagged builder image, resolve the pushed image
 digest, and update `container` to consume the digest-pinned image reference. Go
 binaries and images in this stack are release-quality artifacts.
