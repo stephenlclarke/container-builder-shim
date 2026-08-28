@@ -23,3 +23,9 @@ Repeated builds upload and drain an identical build-context tar even when the bu
 ## Related work
 
 This implementation closes [issue 11](https://github.com/stephenlclarke/container-builder-shim/issues/11). It supports [Container pull request 142](https://github.com/stephenlclarke/container/pull/142), [Containerization pull request 37](https://github.com/stephenlclarke/containerization/pull/37), and the cross-repository performance objective in [Compose issue 278](https://github.com/stephenlclarke/container-compose/issues/278).
+
+The benchmarked implementation was merged as
+[builder-shim pull request 12](https://github.com/stephenlclarke/container-builder-shim/pull/12).
+As of 28 August 2026, neither this optimization nor its matched Container and
+Containerization changes has a submitted Apple upstream pull request. Local
+Apple-shaped branches remain submission candidates rather than upstream PRs.
