@@ -19,7 +19,7 @@ concurrency:
 jobs:
   changes:
     name: Detect Relevant Changes
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     outputs:
       heavy: ${{ steps.filter.outputs.heavy }}
     steps:
@@ -79,7 +79,7 @@ jobs:
     if: needs.changes.outputs.heavy == 'true'
     uses: ./.github/workflows/common.yml
   image: 
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     needs: [build]
     steps:
       - name: Login to GitHub container registry

@@ -27,7 +27,7 @@ jobs:
   resolve-publish-context:
     name: Resolve Publish Context
     if: github.repository == 'stephenlclarke/container-builder-shim'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     outputs:
       publish: ${{ steps.context.outputs.publish }}
       sha: ${{ steps.context.outputs.sha }}
@@ -149,7 +149,7 @@ jobs:
     name: Publish Current Image
     needs: resolve-publish-context
     if: needs.resolve-publish-context.outputs.publish == 'true'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     permissions:
       contents: write
       packages: write
