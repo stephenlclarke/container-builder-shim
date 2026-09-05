@@ -15,10 +15,12 @@
 
 echo "Checking existence of hawkeye..."
 
-if command -v .local/bin/hawkeye >/dev/null 2>&1; then
-    echo "hawkeye found!"
+hawkeye_bin="${HAWKEYE:-.local/bin/hawkeye}"
+
+if command -v "${hawkeye_bin}" >/dev/null 2>&1; then
+    echo "hawkeye found at ${hawkeye_bin}!"
 else
-    echo "hawkeye not found in PATH"
+    echo "hawkeye not found at ${hawkeye_bin}"
     echo "please install hawkeye. For convenience, you can run scripts/install-hawkeye.sh"
     exit 1
 fi

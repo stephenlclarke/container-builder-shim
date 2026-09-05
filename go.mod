@@ -22,7 +22,7 @@ require (
 	github.com/tonistiigi/fsutil v0.0.0-20260609091201-0257b3308df4
 	github.com/tonistiigi/go-csvvalue v0.0.0-20240814133006-030d3b2625d0
 	golang.org/x/sync v0.21.0
-	google.golang.org/grpc v1.82.1
+	google.golang.org/grpc v1.83.1
 	google.golang.org/protobuf v1.36.11
 )
 
