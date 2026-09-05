@@ -81,6 +81,21 @@ func TestNewBuildOptsParsesCheckMetadata(t *testing.T) {
 	}
 }
 
+func TestNewBuildOptsResolvesDefaultMetaArgument(t *testing.T) {
+	dockerfile := "ARG TAG=\"${TAG:-latest}\"\nFROM docker.io/library/alpine:${TAG}\n"
+	opts, err := NewBuildOpts(context.Background(), t.TempDir(), map[string][]string{
+		KeyBuildID:    {"build-id"},
+		KeyDockerfile: {base64.StdEncoding.EncodeToString([]byte(dockerfile))},
+		KeyTag:        {"example/app:latest"},
+	})
+	if err != nil {
+		t.Fatalf("NewBuildOpts() error = %v", err)
+	}
+	if got, want := opts.BuildArgs["TAG"], "latest"; got != want {
+		t.Fatalf("TAG = %q, want %q", got, want)
+	}
+}
+
 func TestNewBuildOptsParsesDockerfileFrontendMetadata(t *testing.T) {
 	opts, err := NewBuildOpts(context.Background(), t.TempDir(), map[string][]string{
 		KeyBuildID:       {"build-id"},
