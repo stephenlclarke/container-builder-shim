@@ -19,6 +19,7 @@ BUILD_DIR   ?= bin
 PKG         := ./...
 
 GO          ?= go
+HAWKEYE     ?= $(shell command -v hawkeye 2>/dev/null || printf '%s' .local/bin/hawkeye)
 GIT_TAG     := $(shell git describe --tags --always --dirty)
 GO_LDFLAGS  := -s -w -X main.VERSION=$(GIT_TAG)
 GOFLAGS    ?= -ldflags="$(GO_LDFLAGS)"
@@ -104,14 +105,14 @@ generate: protos
 .PHONY: update-licenses
 update-licenses:
 	@echo Updating license headers...
-	@./scripts/ensure-hawkeye-exists.sh
-	@.local/bin/hawkeye format --fail-if-unknown --fail-if-updated false
+	@HAWKEYE="$(HAWKEYE)" ./scripts/ensure-hawkeye-exists.sh
+	@$(HAWKEYE) format --fail-if-unknown --fail-if-updated false
 
 .PHONY: check-licenses
 check-licenses:
 	@echo Checking license headers existence in source files...
-	@./scripts/ensure-hawkeye-exists.sh
-	@.local/bin/hawkeye check --fail-if-unknown
+	@HAWKEYE="$(HAWKEYE)" ./scripts/ensure-hawkeye-exists.sh
+	@$(HAWKEYE) check --fail-if-unknown
 
 .PHONY: image
 image: build-linux
