@@ -18,7 +18,8 @@ BINARY_NAME ?= container-builder-shim
 BUILD_DIR   ?= bin
 PKG         := ./...
 
-GO          ?= go
+GO_TOOLCHAIN_VERSION ?= $(shell awk '$$1 == "go" { print "go" $$2; exit }' go.mod)
+GO          ?= env GOTOOLCHAIN=$(GO_TOOLCHAIN_VERSION) go
 HAWKEYE     ?= $(shell command -v hawkeye 2>/dev/null || printf '%s' .local/bin/hawkeye)
 GIT_TAG     := $(shell git describe --tags --always --dirty)
 GO_LDFLAGS  := -s -w -X main.VERSION=$(GIT_TAG)
@@ -40,6 +41,15 @@ $(BUILD_DIR):
 help:
 	@printf "\033[1mAvailable targets:\033[0m\n"
 	@awk 'BEGIN{FS=":.*##"} /^[a-zA-Z_-]+:.*##/{printf "  \033[36m%-20s\033[0m %s\n", $$1, $$2}' $(MAKEFILE_LIST) | sort
+
+.PHONY: verify-go-toolchain
+verify-go-toolchain:
+	@declared="$(GO_TOOLCHAIN_VERSION)"; \
+	selected="$$($(GO) env GOVERSION)"; \
+	if [ -z "$$declared" ] || [ "$$selected" != "$$declared" ]; then \
+		echo "Go toolchain mismatch: go.mod requires $${declared:-an explicit version}, selected $${selected:-nothing}" >&2; \
+		exit 1; \
+	fi
 
 .PHONY: build
 build: $(BUILD_DIR)
