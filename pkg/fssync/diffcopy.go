@@ -24,7 +24,6 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
-	"strings"
 	"sync"
 	"syscall"
 
@@ -82,10 +81,7 @@ func excludePatternsForWalk(walkMeta *WalkMetadata, proxy *FSSyncProxy) []string
 		return nil
 	}
 
-	followPaths := walkMeta.FollowPaths
-	if followPaths == "" && proxy != nil {
-		followPaths = strings.Join(proxy.addedGlobs, ",")
-	}
+	followPaths := effectiveFollowPaths(walkMeta.FollowPaths)
 	requested := requestedSyntheticDockerfilePaths(followPaths)
 	for _, path := range []string{
 		filepath.Join(DockerfileStaging, "Dockerfile"),

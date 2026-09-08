@@ -23,13 +23,16 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	gofs "io/fs"
+	"net/url"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/apple/container-builder-shim/pkg/api"
 	"github.com/apple/container-builder-shim/pkg/stream"
+	"github.com/moby/patternmatcher"
 	"google.golang.org/grpc/metadata"
 )
 
@@ -136,6 +139,73 @@ func TestUnmarshalWalkMetadata_InvalidMode(t *testing.T) {
 	}
 }
 
+// BuildKit query-escapes all values of a key once any of them is non-ASCII.
+func TestUnmarshalWalkMetadata_DecodesEncodedValues(t *testing.T) {
+	excludes := []string{"ignored/*", "report-日本語.txt"}
+	md := metadata.MD{"exclude-patterns-encoded": {"1"}}
+	for _, e := range excludes {
+		md["exclude-patterns"] = append(md["exclude-patterns"], url.QueryEscape(e))
+	}
+	md["followpaths"] = []string{url.QueryEscape("café"), url.QueryEscape("src")}
+	md["followpaths-encoded"] = []string{"1"}
+
+	got, err := unmarshalWalkMetadata(metadata.NewIncomingContext(context.Background(), md))
+	if err != nil {
+		t.Fatalf("unexpected err: %v", err)
+	}
+	if want := "ignored/*,report-日本語.txt"; strings.Join(got.ExcludedPatterns, ",") != want {
+		t.Errorf("ExcludedPatterns = %q, want %q", got.ExcludedPatterns, want)
+	}
+	if want := "café,src"; got.FollowPaths != want {
+		t.Errorf("FollowPaths = %q, want %q", got.FollowPaths, want)
+	}
+
+	matcher, err := patternmatcher.New(got.ExcludedPatterns)
+	if err != nil {
+		t.Fatalf("patternmatcher.New: %v", err)
+	}
+	for _, path := range []string{"ignored/file.txt", "report-日本語.txt"} {
+		excluded, err := matcher.MatchesOrParentMatches(path)
+		if err != nil {
+			t.Fatalf("MatchesOrParentMatches(%q): %v", path, err)
+		}
+		if !excluded {
+			t.Errorf("%q is not excluded", path)
+		}
+	}
+}
+
+func TestUnmarshalWalkMetadata_KeepsUnencodedValues(t *testing.T) {
+	ctx := metadata.NewIncomingContext(context.Background(), metadata.Pairs("exclude-patterns", "100%+done"))
+	got, err := unmarshalWalkMetadata(ctx)
+	if err != nil {
+		t.Fatalf("unexpected err: %v", err)
+	}
+	if want := "100%+done"; strings.Join(got.ExcludedPatterns, ",") != want {
+		t.Errorf("ExcludedPatterns = %q, want %q", got.ExcludedPatterns, want)
+	}
+}
+
+func TestUnmarshalWalkMetadata_InvalidEncoding(t *testing.T) {
+	ctx := metadata.NewIncomingContext(context.Background(), metadata.Pairs(
+		"exclude-patterns", "%zz",
+		"exclude-patterns-encoded", "1",
+	))
+	if _, err := unmarshalWalkMetadata(ctx); err == nil {
+		t.Fatal("expected error for invalid encoding, got nil")
+	}
+}
+
+func TestUnmarshalWalkMetadata_InvalidEncodedFlag(t *testing.T) {
+	ctx := metadata.NewIncomingContext(context.Background(), metadata.Pairs(
+		"exclude-patterns", url.QueryEscape("ignored/*"),
+		"exclude-patterns-encoded", "yes",
+	))
+	if _, err := unmarshalWalkMetadata(ctx); err == nil {
+		t.Fatal("expected error for invalid encoded flag, got nil")
+	}
+}
+
 func TestWalk_UnsupportedMode(t *testing.T) {
 	ctx := metadata.NewIncomingContext(context.Background(), metadata.Pairs("mode", "json"))
 	fs := NewFS(ctx, &FSSyncProxy{}, "/", t.TempDir()) // proxy never used
@@ -235,4 +305,27 @@ func containsPath(paths []string, path string) bool {
 		}
 	}
 	return false
+}
+
+// BuildKit sends no followpaths when a step needs the whole context (for
+// example RUN --mount=type=tmpfs or COPY . .). The host reads an empty list as
+// "nothing", so the shim must ask for everything explicitly.
+func TestEffectiveFollowPaths(t *testing.T) {
+	tests := []struct {
+		name string
+		in   string
+		want string
+	}{
+		{"empty requests the whole context", "", "."},
+		{"single path is kept", "Gemfile", "Gemfile"},
+		{"list is kept as is", "docker/builder-image/Dockerfile,Gemfile,.node-version", "docker/builder-image/Dockerfile,Gemfile,.node-version"},
+		{"explicit whole context is kept", ".", "."},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := effectiveFollowPaths(tt.in); got != tt.want {
+				t.Errorf("effectiveFollowPaths(%q) = %q, want %q", tt.in, got, tt.want)
+			}
+		})
+	}
 }
