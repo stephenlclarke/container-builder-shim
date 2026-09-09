@@ -66,11 +66,14 @@ jobs:
                     --jq '.jobs[] | select(.name | startswith("Invoke build")) | .conclusion' \
                     | tail -n 1
                 )"
-                if [[ "${build_conclusion}" != "success" ]]; then
-                  printf 'Skipping current builder image: build concluded %s.\n' "${build_conclusion:-missing}"
-                else
-                  sha="${WORKFLOW_RUN_HEAD_SHA}"
-                fi
+                case "${build_conclusion}" in
+                  success|skipped)
+                    sha="${WORKFLOW_RUN_HEAD_SHA}"
+                    ;;
+                  *)
+                    printf 'Skipping current builder image: build concluded %s.\n' "${build_conclusion:-missing}"
+                    ;;
+                esac
               fi
               ;;
             workflow_dispatch)
@@ -97,10 +100,14 @@ jobs:
                   --jq '.jobs[] | select(.name | startswith("Invoke build")) | .conclusion' \
                   | tail -n 1
               )"
-              if [[ "${build_conclusion}" != "success" ]]; then
-                printf 'Main build %s for %s concluded %s.\n' "${run_id}" "${sha}" "${build_conclusion:-missing}" >&2
-                exit 1
-              fi
+              case "${build_conclusion}" in
+                success|skipped)
+                  ;;
+                *)
+                  printf 'Main build %s for %s concluded %s.\n' "${run_id}" "${sha}" "${build_conclusion:-missing}" >&2
+                  exit 1
+                  ;;
+              esac
               ;;
             *)
               printf 'Unsupported event: %s\n' "${GITHUB_EVENT_NAME}" >&2
