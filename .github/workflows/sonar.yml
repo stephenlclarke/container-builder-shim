@@ -16,7 +16,7 @@ concurrency:
 jobs:
   analyze:
     name: Analyze Go
-    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    if: github.event_name != 'pull_request' || (github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.user.login != 'dependabot[bot]')
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
@@ -98,6 +98,7 @@ jobs:
           hotspots="$(
             curl --fail --silent --show-error --user "${SONAR_TOKEN}:" --get \
               --data-urlencode 'projectKey=stephenlclarke_container-builder-shim' \
+              --data-urlencode 'inNewCodePeriod=true' \
               --data-urlencode 'ps=100' \
               "${context[@]}" \
               https://sonarcloud.io/api/hotspots/search
