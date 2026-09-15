@@ -1,5 +1,5 @@
 //===----------------------------------------------------------------------===//
-// Copyright © 2025-2026 Apple Inc. and the container-builder-shim project authors.
+// Copyright © 2026 Apple Inc. and the container-builder-shim project authors.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -17,6 +17,8 @@
 package build
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/moby/buildkit/client"
@@ -53,6 +55,12 @@ func TestConfiguredExportsDefaultsToOCI(t *testing.T) {
 	discardExportWriter(writer)
 }
 
+func TestConfiguredExportsRejectsInvalidOutput(t *testing.T) {
+	if _, err := configuredExports(&BOpts{Outputs: []string{"type=unknown"}}); err == nil {
+		t.Fatal("configuredExports accepted an unsupported output type")
+	}
+}
+
 func TestConfigureExportPreservesExplicitAttributes(t *testing.T) {
 	entry, err := configureExport(client.ExportEntry{
 		Type: client.ExporterTar,
@@ -84,6 +92,38 @@ func TestExportWriterSkipsLocalOnlyExports(t *testing.T) {
 	discardExportWriter(testWriteCloser{})
 }
 
+func TestWrappedWriteCloserPublishesBufferedOutput(t *testing.T) {
+	temporary, err := os.CreateTemp(t.TempDir(), "export-*")
+	if err != nil {
+		t.Fatal(err)
+	}
+	destination := filepath.Join(t.TempDir(), "out.tar")
+	writer := &wrappedWriteCloser{f: temporary, dest: destination}
+	if _, err := writer.Write([]byte("payload")); err != nil {
+		t.Fatalf("Write: %v", err)
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+	payload, err := os.ReadFile(destination)
+	if err != nil {
+		t.Fatalf("ReadFile: %v", err)
+	}
+	if string(payload) != "payload" {
+		t.Fatalf("published payload = %q", payload)
+	}
+}
+
+func TestConfigureExportInitializesAttributes(t *testing.T) {
+	entry, err := configureExport(client.ExportEntry{Type: client.ExporterOCI}, &BOpts{BuildID: "build", Tag: "example:test"}, testWriteCloser{})
+	if err != nil {
+		t.Fatalf("configureExport: %v", err)
+	}
+	if entry.Attrs["name"] != "example:test" || entry.Output == nil {
+		t.Fatalf("configured export = %+v", entry)
+	}
+}
+
 func TestNewSolveOptionsMapsBuildMetadata(t *testing.T) {
 	opts := &BOpts{
 		Tag:          "example:test",
@@ -111,5 +151,18 @@ func TestNewSolveOptionsMapsBuildMetadata(t *testing.T) {
 	}
 	if solve.Frontend != "dockerfile.v1" || len(solve.Exports) != 1 {
 		t.Fatalf("unexpected solve options: %+v", solve)
+	}
+}
+
+func TestNewSolveOptionsRejectsInvalidCacheConfiguration(t *testing.T) {
+	for name, opts := range map[string]*BOpts{
+		"import": {CacheIn: []string{`type=registry,ref="unterminated`}},
+		"export": {CacheOut: []string{`type=registry,ref="unterminated`}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if _, err := newSolveOptions(opts, nil); err == nil {
+				t.Fatal("newSolveOptions accepted invalid cache configuration")
+			}
+		})
 	}
 }

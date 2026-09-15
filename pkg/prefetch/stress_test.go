@@ -153,10 +153,16 @@ func TestPrefetcherHighConcurrencyExtreme(t *testing.T) {
 	successCount := atomic.Int32{}
 	errorCount := atomic.Int32{}
 	panicCount := atomic.Int32{}
+	counters := stressCounters{
+		successes: &successCount,
+		failures:  &errorCount,
+		panics:    &panicCount,
+	}
 
 	for i := 0; i < numGoroutines; i++ {
 		wg.Add(1)
-		go runStressReader(t, &wg, ctx, prefetcher, i, dataSize, readsPerGoroutine, &successCount, &errorCount, &panicCount)
+		config := stressReaderConfig{id: i, dataSize: dataSize, reads: readsPerGoroutine}
+		go runStressReader(t, &wg, ctx, prefetcher, config, counters)
 	}
 
 	go exerciseAdditionalPrefetchers(t, ctx, reader, dataSize, config)
@@ -177,25 +183,37 @@ func TestPrefetcherHighConcurrencyExtreme(t *testing.T) {
 		successCount.Load(), errorCount.Load(), panicCount.Load())
 }
 
-func runStressReader(t *testing.T, wg *sync.WaitGroup, ctx context.Context, reader io.ReaderAt, id, dataSize, reads int, successes, failures, panics *atomic.Int32) {
+type stressReaderConfig struct {
+	id       int
+	dataSize int
+	reads    int
+}
+
+type stressCounters struct {
+	successes *atomic.Int32
+	failures  *atomic.Int32
+	panics    *atomic.Int32
+}
+
+func runStressReader(t *testing.T, wg *sync.WaitGroup, ctx context.Context, reader io.ReaderAt, config stressReaderConfig, counters stressCounters) {
 	defer func() {
 		if recovered := recover(); recovered != nil {
-			panics.Add(1)
-			t.Logf("goroutine %d recovered from panic: %v", id, recovered)
+			counters.panics.Add(1)
+			t.Logf("goroutine %d recovered from panic: %v", config.id, recovered)
 		}
 		wg.Done()
 	}()
-	for range reads {
+	for range config.reads {
 		if ctx.Err() != nil {
 			return
 		}
 		readSize := 1 + rand.Intn(32*1024)
-		offset := rand.Int63n(int64(dataSize - readSize))
+		offset := rand.Int63n(int64(config.dataSize - readSize))
 		_, err := reader.ReadAt(make([]byte, readSize), offset)
 		if err != nil && err != io.EOF {
-			failures.Add(1)
+			counters.failures.Add(1)
 		} else {
-			successes.Add(1)
+			counters.successes.Add(1)
 		}
 		time.Sleep(time.Duration(rand.Intn(5)) * time.Millisecond)
 	}

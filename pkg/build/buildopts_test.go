@@ -195,3 +195,80 @@ func TestNewBuildOptsRejectsInvalidBuildNetworkMode(t *testing.T) {
 		t.Fatalf("NewBuildOpts() error = %v, want %v", err, ErrInvalidNetworkMode)
 	}
 }
+
+func TestParseBuildRequestRejectsMalformedRequiredMetadata(t *testing.T) {
+	validDockerfile := base64.StdEncoding.EncodeToString([]byte("FROM scratch\n"))
+	tests := map[string]map[string][]string{
+		"missing build id": {
+			KeyTag: {"example:test"}, KeyDockerfile: {validDockerfile},
+		},
+		"missing tag": {
+			KeyBuildID: {"build"}, KeyDockerfile: {validDockerfile},
+		},
+		"missing dockerfile": {
+			KeyBuildID: {"build"}, KeyTag: {"example:test"},
+		},
+		"invalid dockerfile": {
+			KeyBuildID: {"build"}, KeyTag: {"example:test"}, KeyDockerfile: {"%%%"},
+		},
+		"invalid dockerignore": {
+			KeyBuildID: {"build"}, KeyTag: {"example:test"}, KeyDockerfile: {validDockerfile}, KeyDockerignore: {"%%%"},
+		},
+		"invalid progress": {
+			KeyBuildID: {"build"}, KeyTag: {"example:test"}, KeyDockerfile: {validDockerfile}, KeyProgress: {"graphical"},
+		},
+		"invalid platform": {
+			KeyBuildID: {"build"}, KeyTag: {"example:test"}, KeyDockerfile: {validDockerfile}, KeyPlatforms: {"not a platform"},
+		},
+	}
+	for name, metadata := range tests {
+		t.Run(name, func(t *testing.T) {
+			if _, err := parseBuildRequest(metadata); err == nil {
+				t.Fatal("parseBuildRequest accepted malformed metadata")
+			}
+		})
+	}
+}
+
+func TestParseBuildRequestUsesDefaults(t *testing.T) {
+	request, err := parseBuildRequest(map[string][]string{
+		KeyBuildID:    {"build"},
+		KeyTag:        {"example:test"},
+		KeyDockerfile: {base64.StdEncoding.EncodeToString([]byte("FROM scratch\n"))},
+	})
+	if err != nil {
+		t.Fatalf("parseBuildRequest: %v", err)
+	}
+	if request.contextDir != "." || request.progress != "auto" || len(request.platforms) != 1 {
+		t.Fatalf("unexpected defaults: %+v", request)
+	}
+}
+
+func TestMetadataParsingHelpers(t *testing.T) {
+	if value, ok := firstMetadataValue(map[string][]string{"empty": {}}, "empty"); ok || value != "" {
+		t.Fatalf("firstMetadataValue(empty) = (%q, %v)", value, ok)
+	}
+	if got := lastMetadataValue(nil); got != "" {
+		t.Fatalf("lastMetadataValue(nil) = %q", got)
+	}
+	if got := extractStringMap([]string{"flag", "key=value"}); !reflect.DeepEqual(got, map[string]string{"flag": "", "key": "value"}) {
+		t.Fatalf("extractStringMap = %#v", got)
+	}
+	decoded, err := extractBase64Map([]string{"empty", "key=" + base64.StdEncoding.EncodeToString([]byte("value"))})
+	if err != nil || string(decoded["key"]) != "value" || len(decoded["empty"]) != 0 {
+		t.Fatalf("extractBase64Map = (%#v, %v)", decoded, err)
+	}
+	if _, err := extractBase64Map([]string{"key=%%%"}); err == nil {
+		t.Fatal("extractBase64Map accepted invalid base64")
+	}
+}
+
+func TestParseTargetPlatforms(t *testing.T) {
+	parsed, err := parseTargetPlatforms([]string{"linux/amd64", "linux/arm64"})
+	if err != nil || len(parsed) != 2 {
+		t.Fatalf("parseTargetPlatforms = (%#v, %v)", parsed, err)
+	}
+	if _, err := parseTargetPlatforms([]string{"invalid"}); err == nil {
+		t.Fatal("parseTargetPlatforms accepted invalid platform")
+	}
+}
