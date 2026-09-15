@@ -30,6 +30,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/apple/container-builder-shim/pkg/api"
 	"github.com/apple/container-builder-shim/pkg/stream"
 	"github.com/gofrs/flock"
 )
@@ -135,26 +136,34 @@ func walkCachedContext(cacheDir string, fn fs.WalkDirFunc) error {
 		if err != nil || rel == "." || rel == cacheCompletionMarker {
 			return err
 		}
-		if info.Mode().IsRegular() || info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
-			linkName := ""
-			if info.Mode()&os.ModeSymlink != 0 {
-				target, err := os.Readlink(p)
-				if err != nil {
-					return err
-				}
-				linkName = target
-			}
-			return fn(rel, fs.FileInfoToDirEntry(&FileInfo{
-				NameVal:    rel,
-				SizeVal:    info.Size(),
-				ModeVal:    info.Mode(),
-				ModTimeVal: info.ModTime(),
-				IsDirVal:   info.IsDir(),
-				LinkName:   linkName,
-			}), nil)
+		if !isSupportedCacheEntry(info) {
+			return nil
 		}
-		return nil
+		return walkCachedEntry(p, rel, info, fn)
 	})
+}
+
+func isSupportedCacheEntry(info os.FileInfo) bool {
+	return info.Mode().IsRegular() || info.IsDir() || info.Mode()&os.ModeSymlink != 0
+}
+
+func walkCachedEntry(path, relativePath string, info os.FileInfo, fn fs.WalkDirFunc) error {
+	linkName := ""
+	if info.Mode()&os.ModeSymlink != 0 {
+		target, err := os.Readlink(path)
+		if err != nil {
+			return err
+		}
+		linkName = target
+	}
+	return fn(relativePath, fs.FileInfoToDirEntry(&FileInfo{
+		NameVal:    relativePath,
+		SizeVal:    info.Size(),
+		ModeVal:    info.Mode(),
+		ModTimeVal: info.ModTime(),
+		IsDirVal:   info.IsDir(),
+		LinkName:   linkName,
+	}), nil)
 }
 
 func startTar(demux *stream.Demultiplexer, errCh chan<- error, headerCh chan<- tarStreamHeader, dataCh chan<- []byte) {
@@ -165,49 +174,58 @@ func startTar(demux *stream.Demultiplexer, errCh chan<- error, headerCh chan<- t
 	for {
 		resp, err := demux.Recv()
 		if err != nil {
-			if err == io.EOF || strings.Contains(err.Error(), "EOF") || strings.Contains(err.Error(), "transport is closing") {
-				errCh <- fmt.Errorf("tar stream ended before completion")
-				return
-			}
-			errCh <- err
+			errCh <- normalizeTarReceiveError(err)
 			return
 		}
 		if bt := resp.GetBuildTransfer(); bt != nil {
-			if errMsg, ok := bt.Metadata["error"]; ok {
-				errCh <- fmt.Errorf("server error in TAR mode: %s", errMsg)
-				return
-			}
-
-			if hash, ok := bt.Metadata["hash"]; ok {
-				headerCh <- tarStreamHeader{checksum: hash, complete: bt.Complete}
-				if bt.Complete {
-					errCh <- nil
-					return
-				}
-				continue
-			}
-
-			dataCh <- bt.Data
-			if bt.Complete {
-				errCh <- nil
+			if handleBuildTransfer(bt, errCh, headerCh, dataCh) {
 				return
 			}
 			continue
 		}
 		if it := resp.GetImageTransfer(); it != nil {
-			if errMsg, ok := it.Metadata["error"]; ok {
-				errCh <- fmt.Errorf("server error in TAR mode: %s", errMsg)
-				return
-			}
-			dataCh <- it.Data
-			if it.Complete {
-				errCh <- nil
+			if handleImageTransfer(it, errCh, dataCh) {
 				return
 			}
 			continue
 		}
 		errCh <- fmt.Errorf("tar stream: unexpected packet type")
 	}
+}
+
+func normalizeTarReceiveError(err error) error {
+	if err == io.EOF || strings.Contains(err.Error(), "EOF") || strings.Contains(err.Error(), "transport is closing") {
+		return fmt.Errorf("tar stream ended before completion")
+	}
+	return err
+}
+
+func handleBuildTransfer(transfer *api.BuildTransfer, errCh chan<- error, headerCh chan<- tarStreamHeader, dataCh chan<- []byte) bool {
+	if errMsg, ok := transfer.Metadata["error"]; ok {
+		errCh <- fmt.Errorf("server error in TAR mode: %s", errMsg)
+		return true
+	}
+	if hash, ok := transfer.Metadata["hash"]; ok {
+		headerCh <- tarStreamHeader{checksum: hash, complete: transfer.Complete}
+	} else {
+		dataCh <- transfer.Data
+	}
+	if transfer.Complete {
+		errCh <- nil
+	}
+	return transfer.Complete
+}
+
+func handleImageTransfer(transfer *api.ImageTransfer, errCh chan<- error, dataCh chan<- []byte) bool {
+	if errMsg, ok := transfer.Metadata["error"]; ok {
+		errCh <- fmt.Errorf("server error in TAR mode: %s", errMsg)
+		return true
+	}
+	dataCh <- transfer.Data
+	if transfer.Complete {
+		errCh <- nil
+	}
+	return transfer.Complete
 }
 
 func readTarStreamHeader(ctx context.Context, errCh <-chan error, headerCh <-chan tarStreamHeader) (tarStreamHeader, error) {

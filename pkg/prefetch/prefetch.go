@@ -113,9 +113,8 @@ func New(reader ReaderAt, size int64, configs ...Config) (Prefetcher, error) {
 	if config.MaxRetries < 0 {
 		config.MaxRetries = DefaultConfig().MaxRetries
 	}
-	minWindow := int64(config.ChunkSize)
-	if config.WindowSize < minWindow {
-		config.WindowSize = minWindow
+	if config.WindowSize < int64(config.ChunkSize) {
+		config.WindowSize = int64(config.ChunkSize)
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -139,19 +138,8 @@ func (p *prefetcher) ReadAt(b []byte, off int64) (int, error) {
 	}
 	defer p.wg.Done()
 
-	if off < 0 {
-		return 0, ErrOffsetOutOfRange
-	}
-	if len(b) == 0 {
-		return 0, nil
-	}
-
-	if p.size == 0 {
-		return 0, io.EOF
-	}
-
-	if p.size > 0 && off >= p.size {
-		return 0, ErrOffsetOutOfRange
+	if err := p.validateRead(b, off); err != nil || len(b) == 0 {
+		return 0, err
 	}
 
 	p.readCount.Add(1)
@@ -165,114 +153,121 @@ func (p *prefetcher) ReadAt(b []byte, off int64) (int, error) {
 		return 0, io.EOF
 	}
 
-	windowChunks := p.config.WindowSize / int64(p.config.ChunkSize)
-	if rem := p.config.WindowSize % int64(p.config.ChunkSize); rem > 0 {
-		windowChunks++
+	p.scheduleRequiredChunks(startChunkIdx, endChunkIdx)
+	p.scheduleReadAhead(endChunkIdx, p.windowEndChunk(startChunkIdx))
+	bytesRead, err := p.copyChunks(b, off, startChunkIdx, endChunkIdx)
+	if err == nil && p.size > 0 && off+int64(bytesRead) >= p.size {
+		err = io.EOF
 	}
+	return bytesRead, err
+}
+
+func (p *prefetcher) validateRead(buffer []byte, offset int64) error {
+	if offset < 0 {
+		return ErrOffsetOutOfRange
+	}
+	if len(buffer) == 0 {
+		return nil
+	}
+	if p.size == 0 && len(buffer) > 0 {
+		return io.EOF
+	}
+	if p.size > 0 && offset >= p.size {
+		return ErrOffsetOutOfRange
+	}
+	return nil
+}
+
+func (p *prefetcher) windowEndChunk(startChunk int64) int64 {
+	chunkSize := int64(p.config.ChunkSize)
+	windowChunks := (p.config.WindowSize + chunkSize - 1) / chunkSize
 	if windowChunks < 1 {
 		windowChunks = 1
 	}
-	windowEndChunkIdx := startChunkIdx + windowChunks - 1
+	windowEnd := startChunk + windowChunks - 1
 	if p.size > 0 {
-		maxChunkIdx := (p.size - 1) / int64(p.config.ChunkSize)
-		if windowEndChunkIdx > maxChunkIdx {
-			windowEndChunkIdx = maxChunkIdx
+		maxChunk := (p.size - 1) / chunkSize
+		if windowEnd > maxChunk {
+			return maxChunk
 		}
 	}
+	return windowEnd
+}
 
-	maxPrefetchOps := p.config.WindowSize / int64(p.config.ChunkSize)
-	if maxPrefetchOps > 1000 {
-		maxPrefetchOps = 1000
-	}
-
-	for chunkIdx := startChunkIdx; chunkIdx <= endChunkIdx; chunkIdx++ {
-		if !p.cache.hasChunk(chunkIdx) && p.beginOperation() {
-			go func(idx int64) {
-				defer p.wg.Done()
-				if p.ctx.Err() != nil {
-					return
-				}
-				if !p.cache.hasChunk(idx) {
-					_, _ = p.fetchChunk(idx)
-				}
-			}(chunkIdx)
+func (p *prefetcher) scheduleRequiredChunks(startChunk, endChunk int64) {
+	for index := startChunk; index <= endChunk; index++ {
+		if p.cache.hasChunk(index) || !p.beginOperation() {
+			continue
 		}
+		go func(chunkIndex int64) {
+			defer p.wg.Done()
+			if p.ctx.Err() == nil && !p.cache.hasChunk(chunkIndex) {
+				_, _ = p.fetchChunk(chunkIndex)
+			}
+		}(index)
 	}
+}
 
-	prefetchCount := int64(0)
-	for i := endChunkIdx + 1; i <= windowEndChunkIdx && prefetchCount < maxPrefetchOps; i++ {
-		chunkIdx := i
-		if !p.cache.hasChunk(chunkIdx) && p.beginOperation() {
-			prefetchCount++
-			go func(idx int64) {
-				defer p.wg.Done()
-				time.Sleep(5 * time.Millisecond)
-				if p.ctx.Err() != nil {
-					return
-				}
-				if p.cache.hasChunk(idx) {
-					return
-				}
-				select {
-				case p.semaphore <- struct{}{}:
-					defer func() { <-p.semaphore }()
-					buf := make([]byte, p.config.ChunkSize)
-					start := idx * int64(p.config.ChunkSize)
-					n, err := p.reader.ReadAt(buf, start)
-					if err != nil && err != io.EOF {
-						return
-					}
-					ch := &chunk{
-						index:    idx,
-						data:     buf,
-						size:     n,
-						lastUsed: time.Now(),
-					}
-					p.cache.addChunk(ch)
-				default:
-				}
-			}(chunkIdx)
+func (p *prefetcher) scheduleReadAhead(endChunk, windowEnd int64) {
+	limit := p.config.WindowSize / int64(p.config.ChunkSize)
+	if limit > 1000 {
+		limit = 1000
+	}
+	scheduled := int64(0)
+	for index := endChunk + 1; index <= windowEnd && scheduled < limit; index++ {
+		if p.cache.hasChunk(index) || !p.beginOperation() {
+			continue
 		}
+		scheduled++
+		go p.readAhead(index)
 	}
+}
 
+func (p *prefetcher) readAhead(index int64) {
+	defer p.wg.Done()
+	time.Sleep(5 * time.Millisecond)
+	if p.ctx.Err() != nil || p.cache.hasChunk(index) {
+		return
+	}
+	select {
+	case p.semaphore <- struct{}{}:
+		defer func() { <-p.semaphore }()
+		buffer := make([]byte, p.config.ChunkSize)
+		n, err := p.reader.ReadAt(buffer, index*int64(p.config.ChunkSize))
+		if err == nil || err == io.EOF {
+			p.cache.addChunk(&chunk{index: index, data: buffer, size: n, lastUsed: time.Now()})
+		}
+	default:
+	}
+}
+
+func (p *prefetcher) copyChunks(buffer []byte, offset, startChunk, endChunk int64) (int, error) {
 	bytesRead := 0
-	bufferOffset := 0
-
-	for chunkIdx := startChunkIdx; chunkIdx <= endChunkIdx; chunkIdx++ {
-		chunk, err := p.getChunk(chunkIdx)
+	for index := startChunk; index <= endChunk && bytesRead < len(buffer); index++ {
+		cachedChunk, err := p.getChunk(index)
 		if err != nil {
 			return bytesRead, err
 		}
-
-		startOffsetInChunk := 0
-		if chunkIdx == startChunkIdx {
-			startOffsetInChunk = int(off % int64(p.config.ChunkSize))
+		chunkOffset := 0
+		if index == startChunk {
+			chunkOffset = int(offset % int64(p.config.ChunkSize))
 		}
-
-		bytesToCopy := chunk.size - startOffsetInChunk
-		if bytesToCopy <= 0 {
+		available := cachedChunk.size - chunkOffset
+		if available <= 0 {
 			break
 		}
-		remainingBytes := len(b) - bufferOffset
-		if bytesToCopy > remainingBytes {
-			bytesToCopy = remainingBytes
-		}
-
-		copy(b[bufferOffset:bufferOffset+bytesToCopy], chunk.data[startOffsetInChunk:startOffsetInChunk+bytesToCopy])
-		bufferOffset += bytesToCopy
-		bytesRead += bytesToCopy
-
-		if bufferOffset >= len(b) {
-			break
-		}
+		count := minimumInt(available, len(buffer)-bytesRead)
+		copy(buffer[bytesRead:bytesRead+count], cachedChunk.data[chunkOffset:chunkOffset+count])
+		bytesRead += count
 	}
+	return bytesRead, nil
+}
 
-	var err error
-	if p.size > 0 && off+int64(bytesRead) >= p.size {
-		err = io.EOF
+func minimumInt(first, second int) int {
+	if first < second {
+		return first
 	}
-
-	return bytesRead, err
+	return second
 }
 
 func (p *prefetcher) getChunk(chunkIdx int64) (*chunk, error) {
@@ -297,49 +292,11 @@ func (p *prefetcher) fetchChunk(chunkIdx int64) (*chunk, error) {
 		case <-time.After(p.config.ReadTimeout):
 			return nil, ErrReadFailed
 		}
-		start := chunkIdx * int64(p.config.ChunkSize)
-		var n int
-		var rerr error
-		var buf []byte
-		for attempt := 0; attempt <= p.config.MaxRetries; attempt++ {
-			if attempt > 0 {
-				select {
-				case <-p.ctx.Done():
-					return nil, p.ctx.Err()
-				case <-time.After(p.config.RetryInterval):
-				}
-			}
-			tmp := make([]byte, p.config.ChunkSize)
-			readCtx, cancel := context.WithTimeout(p.ctx, p.config.ReadTimeout)
-			resCh := make(chan struct {
-				n   int
-				err error
-			}, 1)
-			go func() {
-				nn, ee := p.reader.ReadAt(tmp, start)
-				resCh <- struct {
-					n   int
-					err error
-				}{nn, ee}
-			}()
-			select {
-			case <-readCtx.Done():
-				cancel()
-				n = 0
-				rerr = ErrReadFailed
-			case r := <-resCh:
-				cancel()
-				n, rerr = r.n, r.err
-			}
-			buf = tmp
-			if rerr == nil || rerr == io.EOF {
-				break
-			}
-		}
-		if rerr != nil && rerr != io.EOF {
+		buffer, n, readErr := p.readChunkWithRetries(chunkIdx)
+		if readErr != nil && readErr != io.EOF {
 			return nil, ErrReadFailed
 		}
-		ch := &chunk{index: chunkIdx, data: buf, size: n, lastUsed: time.Now()}
+		ch := &chunk{index: chunkIdx, data: buffer, size: n, lastUsed: time.Now()}
 		p.cache.addChunk(ch)
 		return ch, nil
 	})
@@ -347,6 +304,54 @@ func (p *prefetcher) fetchChunk(chunkIdx int64) (*chunk, error) {
 		return nil, err
 	}
 	return val.(*chunk), nil
+}
+
+type chunkReadResult struct {
+	n   int
+	err error
+}
+
+func (p *prefetcher) readChunkWithRetries(chunkIndex int64) ([]byte, int, error) {
+	var buffer []byte
+	var n int
+	var err error
+	for attempt := 0; attempt <= p.config.MaxRetries; attempt++ {
+		if attempt > 0 && !p.waitForRetry() {
+			return nil, 0, p.ctx.Err()
+		}
+		buffer, n, err = p.readChunkOnce(chunkIndex)
+		if err == nil || err == io.EOF {
+			return buffer, n, err
+		}
+	}
+	return buffer, n, err
+}
+
+func (p *prefetcher) waitForRetry() bool {
+	select {
+	case <-p.ctx.Done():
+		return false
+	case <-time.After(p.config.RetryInterval):
+		return true
+	}
+}
+
+func (p *prefetcher) readChunkOnce(chunkIndex int64) ([]byte, int, error) {
+	buffer := make([]byte, p.config.ChunkSize)
+	resultChannel := make(chan chunkReadResult, 1)
+	go func() {
+		n, err := p.reader.ReadAt(buffer, chunkIndex*int64(p.config.ChunkSize))
+		resultChannel <- chunkReadResult{n: n, err: err}
+	}()
+
+	readContext, cancel := context.WithTimeout(p.ctx, p.config.ReadTimeout)
+	defer cancel()
+	select {
+	case <-readContext.Done():
+		return buffer, 0, ErrReadFailed
+	case result := <-resultChannel:
+		return buffer, result.n, result.err
+	}
 }
 
 func (p *prefetcher) Size() int64 {

@@ -38,6 +38,27 @@ import (
 )
 
 func Build(ctx context.Context, opts *BOpts) error {
+	buildkit, err := newBuildkitClient(ctx)
+	if err != nil {
+		return err
+	}
+	defer buildkit.Close()
+
+	exports, err := configuredExports(opts)
+	if err != nil {
+		return err
+	}
+	solveOpt, err := newSolveOptions(opts, exports)
+	if err != nil {
+		return err
+	}
+
+	_, err = buildkit.Build(opts.Context(ctx), solveOpt, "", frontend, opts.ProgressWriter.Status())
+	<-opts.ProgressWriter.Done()
+	return err
+}
+
+func newBuildkitClient(ctx context.Context) (*client.Client, error) {
 	grpcOpts := []grpc.DialOption{
 		grpc.WithDefaultCallOptions(grpc.WaitForReady(true)),
 
@@ -54,87 +75,108 @@ func Build(ctx context.Context, opts *BOpts) error {
 	buildkit, err := client.New(ctx, "", clientOpts...)
 	if err != nil {
 		logrus.Debugf("failed to connect to buildkit")
-		return err
+		return nil, err
 	}
-	defer buildkit.Close()
+	return buildkit, nil
+}
 
-	var exportsWithOutput []client.ExportEntry
-	if !opts.Check {
-		exports, err := parseOutput(opts.Outputs)
-		if err != nil {
-			return err
-		}
-
-		if len(exports) == 0 {
-			exports = append(exports, client.ExportEntry{
-				Type:  "oci",
-				Attrs: map[string]string{},
-			})
-		}
-
-		outputPath := filepath.Join(GlobalExportPath, opts.BuildID, "out.tar")
-		f, err := os.CreateTemp("", "")
-		if err != nil {
-			return err
-		}
-
-		// IMPORTANT:
-		// gRPC's buffer pool allocates new buffers indefinitely when writing over any network medium.
-		//
-		// This issue is specifically observed when writing over network or virtiofs,
-		// potentially due to underlying OS/kernel behaviors affecting heap ref-counting.
-		// Direct disk writes do NOT trigger excessive bufPool allocations, likely due to
-		// immediate heap release. As a workaround, we write grpc buffers directly to disk
-		// first, then perform a separate io.Copy from disk to virtiofs to avoid the issue.
-		wf := &wrappedWriteCloser{
-			f:    f,
-			dest: outputPath,
-		}
-
-		for _, export := range exports {
-			if export.Attrs == nil {
-				export.Attrs = map[string]string{}
-			}
-
-			switch export.Type {
-			case client.ExporterLocal:
-				localDest := filepath.Join(GlobalExportPath, opts.BuildID, "local")
-				if err := os.MkdirAll(localDest, 0o755); err != nil {
-					return err
-				}
-				if export.OutputDir == "" {
-					export.OutputDir = localDest
-				}
-				export.Attrs["dest"] = localDest
-			default: // oci, tar
-				export.Output = func(map[string]string) (io.WriteCloser, error) {
-					return wf, nil
-				}
-				export.Attrs["output"] = filepath.Join(GlobalExportPath, opts.BuildID, "out.tar")
-			}
-
-			if _, ok := export.Attrs["name"]; !ok {
-				export.Attrs["name"] = opts.Tag
-			}
-			if _, ok := export.Attrs["annotation-index-descriptor.com.apple.containerization.image.name"]; !ok {
-				export.Attrs["annotation-index-descriptor.com.apple.containerization.image.name"] = opts.Tag
-			}
-			exportsWithOutput = append(exportsWithOutput, export)
-		}
+func configuredExports(opts *BOpts) ([]client.ExportEntry, error) {
+	if opts.Check {
+		return nil, nil
+	}
+	exports, err := parseOutput(opts.Outputs)
+	if err != nil {
+		return nil, err
 	}
 
+	if len(exports) == 0 {
+		exports = append(exports, client.ExportEntry{Type: "oci", Attrs: map[string]string{}})
+	}
+
+	wf, err := exportWriter(exports, opts.BuildID)
+	if err != nil {
+		return nil, err
+	}
+	configured := make([]client.ExportEntry, 0, len(exports))
+	for _, export := range exports {
+		entry, err := configureExport(export, opts, wf)
+		if err != nil {
+			discardExportWriter(wf)
+			return nil, err
+		}
+		configured = append(configured, entry)
+	}
+	return configured, nil
+}
+
+func discardExportWriter(writer io.WriteCloser) {
+	wrapped, ok := writer.(*wrappedWriteCloser)
+	if !ok {
+		return
+	}
+	_ = wrapped.f.Close()
+	_ = os.Remove(wrapped.f.Name())
+}
+
+func exportWriter(exports []client.ExportEntry, buildID string) (io.WriteCloser, error) {
+	for _, export := range exports {
+		if export.Type == client.ExporterLocal {
+			continue
+		}
+		file, err := os.CreateTemp("", "")
+		if err != nil {
+			return nil, err
+		}
+		// Buffer to disk before copying to virtiofs to prevent unbounded gRPC buffer growth.
+		return &wrappedWriteCloser{f: file, dest: filepath.Join(GlobalExportPath, buildID, "out.tar")}, nil
+	}
+	return nil, nil
+}
+
+func configureExport(export client.ExportEntry, opts *BOpts, writer io.WriteCloser) (client.ExportEntry, error) {
+	if export.Attrs == nil {
+		export.Attrs = map[string]string{}
+	}
+	if export.Type == client.ExporterLocal {
+		localDest := filepath.Join(GlobalExportPath, opts.BuildID, "local")
+		if err := os.MkdirAll(localDest, 0o755); err != nil {
+			return export, err
+		}
+		if export.OutputDir == "" {
+			export.OutputDir = localDest
+		}
+		export.Attrs["dest"] = localDest
+	} else {
+		export.Output = func(map[string]string) (io.WriteCloser, error) { return writer, nil }
+		export.Attrs["output"] = filepath.Join(GlobalExportPath, opts.BuildID, "out.tar")
+	}
+	setDefaultExportAttributes(export.Attrs, opts.Tag)
+	return export, nil
+}
+
+func setDefaultExportAttributes(attributes map[string]string, tag string) {
+	if _, ok := attributes["name"]; !ok {
+		attributes["name"] = tag
+	}
+	const imageNameAnnotation = "annotation-index-descriptor.com.apple.containerization.image.name"
+	if _, ok := attributes[imageNameAnnotation]; !ok {
+		attributes[imageNameAnnotation] = tag
+	}
+}
+
+func newSolveOptions(opts *BOpts, exports []client.ExportEntry) (client.SolveOpt, error) {
 	cacheImports, err := build.ParseImportCache(opts.CacheIn)
 	if err != nil {
-		return err
+		return client.SolveOpt{}, err
 	}
 
 	cacheExports, err := build.ParseExportCache(opts.CacheOut)
 	if err != nil {
-		return err
+		return client.SolveOpt{}, err
 	}
 
 	solveOpt := client.SolveOpt{
-		Exports:      exportsWithOutput,
+		Exports:      exports,
 		CacheImports: cacheImports,
 		CacheExports: cacheExports,
 		Session: []session.Attachable{
@@ -180,14 +222,11 @@ func Build(ctx context.Context, opts *BOpts) error {
 	if len(opts.SSH) > 0 {
 		sshProvider, err := sshprovider.NewSSHAgentProvider(opts.SSH)
 		if err != nil {
-			return err
+			return client.SolveOpt{}, err
 		}
 		solveOpt.Session = append(solveOpt.Session, sshProvider)
 	}
-
-	_, err = buildkit.Build(opts.Context(ctx), solveOpt, "", frontend, opts.ProgressWriter.Status())
-	<-opts.ProgressWriter.Done()
-	return err
+	return solveOpt, nil
 }
 
 type wrappedWriteCloser struct {

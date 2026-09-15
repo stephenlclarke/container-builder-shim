@@ -239,35 +239,11 @@ func TestPrefetcherConcurrentReads(t *testing.T) {
 
 	errors := make([]error, numReaders)
 	data := make([][]byte, numReaders)
-
-	offsets := make([]int64, numReaders*2)
-	for i := 0; i < numReaders*2; i += 2 {
-		maxOffset := int64(len(mockReader.data) - readSize)
-		offsets[i] = int64(i) * maxOffset / int64(numReaders)
-		offsets[i+1] = int64(i) * maxOffset / int64(numReaders)
-	}
+	offsets := concurrentReadOffsets(len(mockReader.data), readSize, numReaders)
 
 	for i := 0; i < numReaders; i++ {
 		wg.Add(1)
-		go func(idx int, offset int64) {
-			defer wg.Done()
-
-			buf := make([]byte, readSize)
-			n, err := prefetcher.ReadAt(buf, offset)
-
-			if err != nil && err != io.EOF {
-				errors[idx] = err
-				return
-			}
-
-			if n != readSize {
-				errors[idx] = fmt.Errorf("incomplete read")
-				return
-			}
-
-			data[idx] = make([]byte, readSize)
-			copy(data[idx], buf)
-		}(i, offsets[i])
+		go performConcurrentRead(&wg, prefetcher, i, offsets[i], readSize, errors, data)
 	}
 
 	wg.Wait()
@@ -278,21 +254,7 @@ func TestPrefetcherConcurrentReads(t *testing.T) {
 		}
 	}
 
-	for i, buf := range data {
-		if buf == nil {
-			continue
-		}
-
-		offset := offsets[i]
-		for j := 0; j < readSize; j++ {
-			expected := byte((int(offset) + j) % 256)
-			if buf[j] != expected {
-				t.Errorf("Data mismatch in reader %d at offset %d: expected %d, got %d",
-					i, offset+int64(j), expected, buf[j])
-				break
-			}
-		}
-	}
+	assertConcurrentReadData(t, data, offsets)
 
 	if readCount := mockReader.GetReadCount(); readCount >= numReaders {
 		t.Logf("Expected read count to be less than %d due to caching, but got %d",
@@ -300,16 +262,57 @@ func TestPrefetcherConcurrentReads(t *testing.T) {
 	}
 }
 
+func concurrentReadOffsets(dataSize, readSize, readers int) []int64 {
+	offsets := make([]int64, readers)
+	maximum := int64(dataSize - readSize)
+	for index := range offsets {
+		pairStart := index - index%2
+		offsets[index] = int64(pairStart) * maximum / int64(readers)
+	}
+	return offsets
+}
+
+func performConcurrentRead(wg *sync.WaitGroup, prefetcher io.ReaderAt, index int, offset int64, readSize int, errors []error, data [][]byte) {
+	defer wg.Done()
+	buffer := make([]byte, readSize)
+	n, err := prefetcher.ReadAt(buffer, offset)
+	if err != nil && err != io.EOF {
+		errors[index] = err
+		return
+	}
+	if n != readSize {
+		errors[index] = fmt.Errorf("incomplete read")
+		return
+	}
+	data[index] = append([]byte(nil), buffer...)
+}
+
+func assertConcurrentReadData(t *testing.T, data [][]byte, offsets []int64) {
+	t.Helper()
+	for readerIndex, buffer := range data {
+		for byteIndex, value := range buffer {
+			expected := byte((int(offsets[readerIndex]) + byteIndex) % 256)
+			if value != expected {
+				t.Errorf("data mismatch in reader %d at offset %d: expected %d, got %d",
+					readerIndex, offsets[readerIndex]+int64(byteIndex), expected, value)
+				break
+			}
+		}
+	}
+}
+
+type prefetcherEdgeCase struct {
+	name       string
+	dataSize   int
+	chunkSize  int
+	windowSize int64
+	readOffset int64
+	readSize   int
+	expectErr  bool
+}
+
 func TestPrefetcherEdgeCases(t *testing.T) {
-	tests := []struct {
-		name       string
-		dataSize   int
-		chunkSize  int
-		windowSize int64
-		readOffset int64
-		readSize   int
-		expectErr  bool
-	}{
+	tests := []prefetcherEdgeCase{
 		{
 			name:       "Read beyond EOF",
 			dataSize:   1024,
@@ -368,48 +371,35 @@ func TestPrefetcherEdgeCases(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			mockReader := newMockReaderAt(tc.dataSize, 0, 0)
-
-			config := DefaultConfig()
-			config.ChunkSize = tc.chunkSize
-			config.WindowSize = tc.windowSize
-
-			prefetcher, err := New(mockReader, int64(tc.dataSize), config)
-			if err != nil {
-				t.Fatalf("Failed to create prefetcher: %v", err)
-			}
-			defer prefetcher.Close()
-
-			buf := make([]byte, tc.readSize)
-			n, err := prefetcher.ReadAt(buf, tc.readOffset)
-
-			if tc.expectErr {
-				if err == nil {
-					t.Errorf("Expected error but got none")
-				}
-			} else {
-				expectedSize := tc.readSize
-				remaining := tc.dataSize - int(tc.readOffset)
-				if remaining < 0 {
-					remaining = 0
-				}
-				if expectedSize > remaining {
-					expectedSize = remaining
-				}
-
-				if tc.readSize == 0 {
-					expectedSize = 0
-				}
-
-				if n != expectedSize {
-					t.Errorf("Expected to read %d bytes, got %d", expectedSize, n)
-				}
-
-				if tc.readOffset+int64(tc.readSize) >= int64(tc.dataSize) && err != io.EOF {
-					t.Errorf("Expected EOF, got %v", err)
-				}
-			}
+			runPrefetcherEdgeCase(t, tc)
 		})
+	}
+}
+
+func runPrefetcherEdgeCase(t *testing.T, testCase prefetcherEdgeCase) {
+	t.Helper()
+	reader := newMockReaderAt(testCase.dataSize, 0, 0)
+	config := DefaultConfig()
+	config.ChunkSize = testCase.chunkSize
+	config.WindowSize = testCase.windowSize
+	prefetcher, err := New(reader, int64(testCase.dataSize), config)
+	if err != nil {
+		t.Fatalf("failed to create prefetcher: %v", err)
+	}
+	defer prefetcher.Close()
+	n, err := prefetcher.ReadAt(make([]byte, testCase.readSize), testCase.readOffset)
+	if testCase.expectErr {
+		if err == nil {
+			t.Error("expected error but got none")
+		}
+		return
+	}
+	expectedSize := minimumInt(testCase.readSize, max(0, testCase.dataSize-int(testCase.readOffset)))
+	if n != expectedSize {
+		t.Errorf("expected to read %d bytes, got %d", expectedSize, n)
+	}
+	if testCase.readOffset+int64(testCase.readSize) >= int64(testCase.dataSize) && err != io.EOF {
+		t.Errorf("expected EOF, got %v", err)
 	}
 }
 

@@ -153,68 +153,19 @@ func TestPrefetcherHighConcurrencyExtreme(t *testing.T) {
 	successCount := atomic.Int32{}
 	errorCount := atomic.Int32{}
 	panicCount := atomic.Int32{}
+	counters := stressCounters{
+		successes: &successCount,
+		failures:  &errorCount,
+		panics:    &panicCount,
+	}
 
 	for i := 0; i < numGoroutines; i++ {
 		wg.Add(1)
-		go func(id int) {
-			defer func() {
-				if r := recover(); r != nil {
-					panicCount.Add(1)
-					t.Logf("Goroutine %d recovered from panic: %v", id, r)
-				}
-				wg.Done()
-			}()
-
-			for j := 0; j < readsPerGoroutine; j++ {
-				select {
-				case <-ctx.Done():
-					return
-				default:
-				}
-
-				readSize := 1 + rand.Intn(32*1024)
-				offset := rand.Int63n(int64(dataSize - readSize))
-				buf := make([]byte, readSize)
-
-				_, err := prefetcher.ReadAt(buf, offset)
-				if err != nil && err != io.EOF {
-					errorCount.Add(1)
-				} else {
-					successCount.Add(1)
-				}
-				time.Sleep(time.Duration(rand.Intn(5)) * time.Millisecond)
-			}
-		}(i)
+		config := stressReaderConfig{id: i, dataSize: dataSize, reads: readsPerGoroutine}
+		go runStressReader(t, &wg, ctx, prefetcher, config, counters)
 	}
 
-	go func() {
-		time.Sleep(100 * time.Millisecond)
-
-		for i := 0; i < 3; i++ {
-			if ctx.Err() != nil {
-				return
-			}
-
-			newPrefetcher, err := New(reader, int64(dataSize), config)
-			if err != nil {
-				t.Logf("Failed to create additional prefetcher: %v", err)
-				continue
-			}
-
-			for j := 0; j < 5; j++ {
-				buf := make([]byte, 1024)
-				offset := rand.Int63n(int64(dataSize - 1024))
-				if _, err := newPrefetcher.ReadAt(buf, offset); err != nil && err != io.EOF {
-					t.Errorf("ReadAt(%d) returned %v", offset, err)
-				}
-			}
-
-			if err := newPrefetcher.Close(); err != nil {
-				t.Errorf("Close returned %v", err)
-			}
-			time.Sleep(50 * time.Millisecond)
-		}
-	}()
+	go exerciseAdditionalPrefetchers(t, ctx, reader, dataSize, config)
 
 	done := make(chan struct{})
 	go func() {
@@ -230,6 +181,66 @@ func TestPrefetcherHighConcurrencyExtreme(t *testing.T) {
 
 	t.Logf("High concurrency test: %d successful reads, %d errors, %d panics recovered",
 		successCount.Load(), errorCount.Load(), panicCount.Load())
+}
+
+type stressReaderConfig struct {
+	id       int
+	dataSize int
+	reads    int
+}
+
+type stressCounters struct {
+	successes *atomic.Int32
+	failures  *atomic.Int32
+	panics    *atomic.Int32
+}
+
+func runStressReader(t *testing.T, wg *sync.WaitGroup, ctx context.Context, reader io.ReaderAt, config stressReaderConfig, counters stressCounters) {
+	defer func() {
+		if recovered := recover(); recovered != nil {
+			counters.panics.Add(1)
+			t.Logf("goroutine %d recovered from panic: %v", config.id, recovered)
+		}
+		wg.Done()
+	}()
+	for range config.reads {
+		if ctx.Err() != nil {
+			return
+		}
+		readSize := 1 + rand.Intn(32*1024)
+		offset := rand.Int63n(int64(config.dataSize - readSize))
+		_, err := reader.ReadAt(make([]byte, readSize), offset)
+		if err != nil && err != io.EOF {
+			counters.failures.Add(1)
+		} else {
+			counters.successes.Add(1)
+		}
+		time.Sleep(time.Duration(rand.Intn(5)) * time.Millisecond)
+	}
+}
+
+func exerciseAdditionalPrefetchers(t *testing.T, ctx context.Context, reader io.ReaderAt, dataSize int, config Config) {
+	time.Sleep(100 * time.Millisecond)
+	for range 3 {
+		if ctx.Err() != nil {
+			return
+		}
+		prefetcher, err := New(reader, int64(dataSize), config)
+		if err != nil {
+			t.Logf("failed to create additional prefetcher: %v", err)
+			continue
+		}
+		for range 5 {
+			offset := rand.Int63n(int64(dataSize - 1024))
+			if _, err := prefetcher.ReadAt(make([]byte, 1024), offset); err != nil && err != io.EOF {
+				t.Errorf("ReadAt(%d) returned %v", offset, err)
+			}
+		}
+		if err := prefetcher.Close(); err != nil {
+			t.Errorf("Close returned %v", err)
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
 }
 
 type syncReadBuffer struct {

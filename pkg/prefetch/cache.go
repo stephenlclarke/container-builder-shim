@@ -110,33 +110,9 @@ func (c *chunkCache) addChunk(ch *chunk) {
 
 func (c *chunkCache) insertInterval(node *intervalNode, start, end int64, ch *chunk) {
 	if start <= node.start {
-		if node.left == nil {
-			node.left = &intervalNode{
-				start:  start,
-				end:    end,
-				chunks: map[int64]*chunk{ch.index: ch},
-				max:    end,
-			}
-		} else {
-			c.insertInterval(node.left, start, end, ch)
-			if node.left.max > node.max {
-				node.max = node.left.max
-			}
-		}
+		node.left = c.insertChild(node.left, start, end, ch)
 	} else {
-		if node.right == nil {
-			node.right = &intervalNode{
-				start:  start,
-				end:    end,
-				chunks: map[int64]*chunk{ch.index: ch},
-				max:    end,
-			}
-		} else {
-			c.insertInterval(node.right, start, end, ch)
-			if node.right.max > node.max {
-				node.max = node.right.max
-			}
-		}
+		node.right = c.insertChild(node.right, start, end, ch)
 	}
 
 	if end > node.max {
@@ -149,6 +125,19 @@ func (c *chunkCache) insertInterval(node *intervalNode, start, end int64, ch *ch
 		}
 		node.chunks[ch.index] = ch
 	}
+}
+
+func (c *chunkCache) insertChild(node *intervalNode, start, end int64, ch *chunk) *intervalNode {
+	if node == nil {
+		return &intervalNode{
+			start:  start,
+			end:    end,
+			chunks: map[int64]*chunk{ch.index: ch},
+			max:    end,
+		}
+	}
+	c.insertInterval(node, start, end, ch)
+	return node
 }
 
 func (c *chunkCache) evictBefore(minIdx int64) {
