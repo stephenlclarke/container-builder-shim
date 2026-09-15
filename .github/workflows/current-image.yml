@@ -23,6 +23,7 @@ jobs:
     name: Resolve Publish Context
     if: github.repository == 'stephenlclarke/container-builder-shim'
     runs-on: ubuntu-24.04
+    timeout-minutes: 30
     permissions:
       actions: read
       contents: read
@@ -112,6 +113,19 @@ jobs:
               exit 1
               ;;
           esac
+
+          if [[ -n "${sha}" ]]; then
+            sonar_run_id="$(
+              gh run list --repo "${GITHUB_REPOSITORY}" --workflow sonar.yml --commit "${sha}" --event push --limit 10 \
+                --json databaseId --jq '.[0].databaseId // empty'
+            )"
+            if [[ -z "${sonar_run_id}" ]]; then
+              printf 'No SonarQube main analysis exists for %s.\n' "${sha}" >&2
+              exit 1
+            fi
+            printf 'Waiting for SonarQube run %s at %s.\n' "${sonar_run_id}" "${sha}"
+            gh run watch "${sonar_run_id}" --repo "${GITHUB_REPOSITORY}" --exit-status
+          fi
 
           if [[ -n "${sha}" ]]; then
             current_main="$(git ls-remote --heads "${remote}" refs/heads/main | awk '{ print $1 }' | tail -n 1)"
