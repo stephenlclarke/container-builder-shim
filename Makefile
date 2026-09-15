@@ -26,6 +26,7 @@ GO_LDFLAGS  := -s -w -X main.VERSION=$(GIT_TAG)
 GOFLAGS    ?= -ldflags="$(GO_LDFLAGS)"
 IMAGE_TAG  ?= $(BINARY_NAME):$(GIT_TAG)
 SOURCE_REPOSITORY ?= https://github.com/stephenlclarke/container-builder-shim
+SONAR_QUALITYGATE_WAIT ?= true
 
 GOLANGCI_LINT_VERSION ?= v1.64.8
 GOLANGCI_LINT ?= $(GO) run github.com/golangci/golangci-lint/cmd/golangci-lint@$(GOLANGCI_LINT_VERSION)
@@ -92,10 +93,29 @@ test:
 test-race:
 	$(GO) test -race $(TEST_FLAGS) $(PKG)
 
-.PHONY: coverage
+.PHONY: coverage sonar-scan
 coverage:
 	$(GO) test -coverprofile=coverage.out $(PKG)
 	$(GO) tool cover -func=coverage.out
+
+sonar-scan:
+	@test -s coverage.out || { \
+		printf 'coverage.out is missing; run make coverage before make sonar-scan\n' >&2; \
+		exit 2; \
+	}
+	@sonar_token="$${SONAR_TOKEN:-$${SONAR_TOKEN_PERSONAL:-}}"; \
+	if [ -z "$$sonar_token" ]; then \
+		printf 'SONAR_TOKEN or SONAR_TOKEN_PERSONAL is required for make sonar-scan\n' >&2; \
+		exit 2; \
+	fi; \
+	sonar_project_version="$${SONAR_PROJECT_VERSION:-$$(git rev-parse HEAD)}"; \
+	if ! printf '%s\n' "$$sonar_project_version" | grep -Eq '^[0-9a-f]{40}$$'; then \
+		printf 'SONAR_PROJECT_VERSION must be an exact lowercase commit SHA\n' >&2; \
+		exit 2; \
+	fi; \
+	SONAR_TOKEN="$$sonar_token" sonar-scanner \
+		-Dsonar.projectVersion="$$sonar_project_version" \
+		-Dsonar.qualitygate.wait="$(SONAR_QUALITYGATE_WAIT)"
 
 .PHONY: docs
 docs: ## Build the static DocC developer guide.
@@ -137,4 +157,4 @@ release: fmt vet lint test image
 .PHONY: clean
 clean:
 	$(GO) clean
-	rm -rf $(BUILD_DIR) _site coverage.out
+	rm -rf $(BUILD_DIR) _site coverage.out .scannerwork

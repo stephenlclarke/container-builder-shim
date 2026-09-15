@@ -1,0 +1,112 @@
+name: SonarQube
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sonar-${{ github.workflow }}-${{ github.head_ref || github.ref_name }}
+  cancel-in-progress: true
+
+jobs:
+  analyze:
+    name: Analyze Go
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+
+      - name: Set up Go
+        uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5 # v6.1.0
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Generate coverage
+        run: make coverage
+
+      - name: Validate SonarQube project policy
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+        run: |
+          set -euo pipefail
+          settings="$(
+            curl --fail --silent --show-error \
+              --user "${SONAR_TOKEN}:" \
+              'https://sonarcloud.io/api/settings/values?component=stephenlclarke_container-builder-shim&keys=sonar.leak.period,sonar.leak.period.type'
+          )"
+          jq -e '
+            ([.settings[] | select(.key == "sonar.leak.period") | .value] == ["previous_version"])
+            and
+            ([.settings[] | select(.key == "sonar.leak.period.type") | .value] == ["previous_version"])
+          ' <<< "${settings}" >/dev/null
+
+      - name: Analyze pull request with SonarQube Cloud
+        if: github.event_name == 'pull_request'
+        uses: SonarSource/sonarqube-scan-action@22918119ff8e1ca75a623e15c8296b6ea4fbe28f # v8.2.1
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+        with:
+          args: >
+            -Dsonar.projectVersion=${{ github.event.pull_request.head.sha }}
+            -Dsonar.pullrequest.key=${{ github.event.pull_request.number }}
+            -Dsonar.pullrequest.branch=${{ github.head_ref }}
+            -Dsonar.pullrequest.base=${{ github.base_ref }}
+            -Dsonar.qualitygate.wait=true
+
+      - name: Analyze branch with SonarQube Cloud
+        if: github.event_name != 'pull_request'
+        uses: SonarSource/sonarqube-scan-action@22918119ff8e1ca75a623e15c8296b6ea4fbe28f # v8.2.1
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+        with:
+          args: >
+            -Dsonar.projectVersion=${{ github.sha }}
+            -Dsonar.branch.name=${{ github.ref_name }}
+            -Dsonar.qualitygate.wait=true
+
+      - name: Require a clean SonarQube analysis
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+        run: |
+          set -euo pipefail
+          context=()
+          if [[ "${GITHUB_EVENT_NAME}" == 'pull_request' ]]; then
+            context+=(--data-urlencode 'pullRequest=${{ github.event.pull_request.number }}')
+          else
+            context+=(--data-urlencode "branch=${GITHUB_REF_NAME}")
+          fi
+          issues="$(
+            curl --fail --silent --show-error --user "${SONAR_TOKEN}:" --get \
+              --data-urlencode 'componentKeys=stephenlclarke_container-builder-shim' \
+              --data-urlencode 'resolved=false' \
+              --data-urlencode 'inNewCodePeriod=true' \
+              --data-urlencode 'ps=100' \
+              "${context[@]}" \
+              https://sonarcloud.io/api/issues/search
+          )"
+          hotspots="$(
+            curl --fail --silent --show-error --user "${SONAR_TOKEN}:" --get \
+              --data-urlencode 'projectKey=stephenlclarke_container-builder-shim' \
+              --data-urlencode 'ps=100' \
+              "${context[@]}" \
+              https://sonarcloud.io/api/hotspots/search
+          )"
+          jq -e '.total == 0' <<< "${issues}" >/dev/null
+          jq -e '.paging.total == 0' <<< "${hotspots}" >/dev/null
+
+      - name: Upload coverage evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: sonar-coverage-${{ github.sha }}
+          path: coverage.out
+          if-no-files-found: error
