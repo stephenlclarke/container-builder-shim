@@ -15,6 +15,7 @@ The Container-family SonarQube inventory had no project or workflow for `contain
 - Exclude generated protobufs and vendored dependencies without excluding maintained Go code.
 - Prevent prefetch operations from being registered after shutdown starts and retain the race/leak suite as regression evidence.
 - Add the same CI and SonarQube badge set used by the other Container-family repositories.
+- Publish a current builder image only after the exact same `main` commit passes both build and SonarQube workflows.
 
 ## Acceptance evidence
 
