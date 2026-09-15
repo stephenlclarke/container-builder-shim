@@ -79,6 +79,7 @@ type prefetcher struct {
 	readCount  atomic.Int64
 	ctx        context.Context
 	cancelFunc context.CancelFunc
+	lifecycle  sync.Mutex
 	wg         sync.WaitGroup
 	closed     atomic.Bool
 	group      singleflight.Group
@@ -133,9 +134,10 @@ func New(reader ReaderAt, size int64, configs ...Config) (Prefetcher, error) {
 }
 
 func (p *prefetcher) ReadAt(b []byte, off int64) (int, error) {
-	if p.closed.Load() {
+	if !p.beginOperation() {
 		return 0, ErrPrefetcherClosed
 	}
+	defer p.wg.Done()
 
 	if off < 0 {
 		return 0, ErrOffsetOutOfRange
@@ -184,8 +186,7 @@ func (p *prefetcher) ReadAt(b []byte, off int64) (int, error) {
 	}
 
 	for chunkIdx := startChunkIdx; chunkIdx <= endChunkIdx; chunkIdx++ {
-		if !p.cache.hasChunk(chunkIdx) {
-			p.wg.Add(1)
+		if !p.cache.hasChunk(chunkIdx) && p.beginOperation() {
 			go func(idx int64) {
 				defer p.wg.Done()
 				if p.ctx.Err() != nil {
@@ -201,9 +202,8 @@ func (p *prefetcher) ReadAt(b []byte, off int64) (int, error) {
 	prefetchCount := int64(0)
 	for i := endChunkIdx + 1; i <= windowEndChunkIdx && prefetchCount < maxPrefetchOps; i++ {
 		chunkIdx := i
-		if !p.cache.hasChunk(chunkIdx) {
+		if !p.cache.hasChunk(chunkIdx) && p.beginOperation() {
 			prefetchCount++
-			p.wg.Add(1)
 			go func(idx int64) {
 				defer p.wg.Done()
 				time.Sleep(5 * time.Millisecond)
@@ -353,12 +353,29 @@ func (p *prefetcher) Size() int64 {
 	return p.size
 }
 
-func (p *prefetcher) Close() error {
-	if p.closed.Swap(true) {
-		return nil
+// beginOperation registers work only while shutdown has not started.
+func (p *prefetcher) beginOperation() bool {
+	p.lifecycle.Lock()
+	defer p.lifecycle.Unlock()
+
+	if p.closed.Load() {
+		return false
 	}
 
+	p.wg.Add(1)
+	return true
+}
+
+func (p *prefetcher) Close() error {
+	p.lifecycle.Lock()
+	if p.closed.Load() {
+		p.lifecycle.Unlock()
+		return nil
+	}
+	p.closed.Store(true)
 	p.cancelFunc()
+	p.lifecycle.Unlock()
+
 	p.wg.Wait()
 	p.cache.clear()
 

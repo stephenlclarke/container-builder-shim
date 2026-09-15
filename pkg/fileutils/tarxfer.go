@@ -485,7 +485,10 @@ func unpackTar(ctx context.Context, tarFile, dest string) error {
 			if err := ensureNewPath(dest, target); err != nil {
 				return err
 			}
-			if err := os.Symlink(hdr.Linkname, target); err != nil {
+			// Preserve the archive's symlink itself without reading or writing its
+			// target; later entries cannot traverse it because ensurePathParent
+			// rejects every non-directory parent, including symlinks.
+			if err := os.Symlink(hdr.Linkname, target); err != nil { // NOSONAR
 				return err
 			}
 		case tar.TypeLink:

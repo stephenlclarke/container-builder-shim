@@ -1,9 +1,5 @@
 name: Container Builder Shim - PR/merge build
 
-permissions:
-  contents: read
-  pull-requests: read
-
 on:
   pull_request:
     types: [opened, reopened, synchronize]
@@ -20,6 +16,9 @@ jobs:
   changes:
     name: Detect Relevant Changes
     runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      pull-requests: read
     outputs:
       heavy: ${{ steps.filter.outputs.heavy }}
     steps:
@@ -77,10 +76,14 @@ jobs:
     name: Invoke build
     needs: changes
     if: needs.changes.outputs.heavy == 'true'
+    permissions:
+      contents: read
     uses: ./.github/workflows/common.yml
-  image: 
+  image:
     runs-on: ubuntu-24.04
     needs: [build]
+    permissions:
+      contents: read
     steps:
       - name: Login to GitHub container registry
         uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3.7.0
