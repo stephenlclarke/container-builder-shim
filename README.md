@@ -7,6 +7,18 @@
     valign="middle">
   &nbsp;container-builder-shim
 </h1>
+<p>
+  <a href="https://github.com/stephenlclarke/container-builder-shim/actions/workflows/build.yml?query=branch%3Amain"><img alt="CI" src="https://github.com/stephenlclarke/container-builder-shim/actions/workflows/build.yml/badge.svg?branch=main" /></a>
+  <a href="https://github.com/stephenlclarke/container-builder-shim/actions/workflows/sonar.yml?query=branch%3Amain"><img alt="SonarQube" src="https://github.com/stephenlclarke/container-builder-shim/actions/workflows/sonar.yml/badge.svg?branch=main" /></a>
+  <a href="https://sonarcloud.io/summary/new_code?id=stephenlclarke_container-builder-shim"><img alt="Quality Gate Status" src="https://sonarcloud.io/api/project_badges/measure?project=stephenlclarke_container-builder-shim&amp;metric=alert_status" /></a>
+  <a href="https://sonarcloud.io/summary/new_code?id=stephenlclarke_container-builder-shim"><img alt="Coverage" src="https://sonarcloud.io/api/project_badges/measure?project=stephenlclarke_container-builder-shim&amp;metric=coverage" /></a>
+  <a href="https://sonarcloud.io/summary/new_code?id=stephenlclarke_container-builder-shim"><img alt="Bugs" src="https://sonarcloud.io/api/project_badges/measure?project=stephenlclarke_container-builder-shim&amp;metric=bugs" /></a>
+  <a href="https://sonarcloud.io/summary/new_code?id=stephenlclarke_container-builder-shim"><img alt="Code Smells" src="https://sonarcloud.io/api/project_badges/measure?project=stephenlclarke_container-builder-shim&amp;metric=code_smells" /></a>
+  <a href="https://sonarcloud.io/summary/new_code?id=stephenlclarke_container-builder-shim"><img alt="Security Rating" src="https://sonarcloud.io/api/project_badges/measure?project=stephenlclarke_container-builder-shim&amp;metric=security_rating" /></a>
+  <a href="https://sonarcloud.io/summary/new_code?id=stephenlclarke_container-builder-shim"><img alt="Maintainability Rating" src="https://sonarcloud.io/api/project_badges/measure?project=stephenlclarke_container-builder-shim&amp;metric=sqale_rating" /></a>
+  <a href="https://sonarcloud.io/summary/new_code?id=stephenlclarke_container-builder-shim"><img alt="Duplicated Lines" src="https://sonarcloud.io/api/project_badges/measure?project=stephenlclarke_container-builder-shim&amp;metric=duplicated_lines_density" /></a>
+  <a href="https://sonarcloud.io/summary/new_code?id=stephenlclarke_container-builder-shim"><img alt="Lines of Code" src="https://sonarcloud.io/api/project_badges/measure?project=stephenlclarke_container-builder-shim&amp;metric=ncloc" /></a>
+</p>
 <!-- markdownlint-enable MD033 -->
 
 **container-builder-shim** is a lightweight bridge that connects BuildKit's session protocol with containerization's Build API. It enables compatibility between BuildKit (the build engine behind Docker) and containerization by translating messages and file transfers between their respective APIs.
@@ -93,7 +105,7 @@ with BuildKit while leaving attestation generation to BuildKit itself.
 
 ## Development
 
-Use `make test`, `make vet`, `make lint`, and `make coverage` before publishing changes. `make lint` runs a pinned `golangci-lint` through `go run` so the result does not depend on a stale local binary; set `GOLANGCI_LINT=/path/to/golangci-lint` only when you intentionally want to use a known-good installed version.
+Use `make test`, `make vet`, `make lint`, and `make coverage` before publishing changes. Run `make sonar-scan` after coverage when a SonarQube token is available; the scan records the exact commit as the project version and waits for the previous-version quality gate. `make lint` runs a pinned `golangci-lint` through `go run` so the result does not depend on a stale local binary; set `GOLANGCI_LINT=/path/to/golangci-lint` only when you intentionally want to use a known-good installed version.
 
 The builder image runs as root because the shim owns the BuildKit daemon, its Unix socket, and state under `/var/lib/container-builder-shim`. Do not switch the final image to a non-root user without moving those responsibilities and validating a live build.
 

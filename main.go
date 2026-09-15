@@ -38,6 +38,11 @@ import (
 	"github.com/apple/container-builder-shim/pkg/server"
 )
 
+const (
+	debugHTTPAddress = "127.0.0.1:10000"
+	debugGRPCAddress = "127.0.0.1:10001"
+)
+
 var (
 	VERSION         = "dev"
 	debug           = false
@@ -74,8 +79,8 @@ var app = &cobra.Command{
 		}
 		if debug {
 			go func() {
-				// Start pprof server on :10000
-				if err := http.ListenAndServe(":10000", nil); err != nil {
+				// Keep diagnostic endpoints inside the builder container boundary.
+				if err := http.ListenAndServe(debugHTTPAddress, nil); err != nil {
 					log.Errorf("pprof HTTP server failed: %v", err)
 				}
 			}()
@@ -120,7 +125,7 @@ var app = &cobra.Command{
 			}
 			if debug {
 				config.Debug = true
-				config.GRPC.DebugAddress = "0.0.0.0:10001"
+				config.GRPC.DebugAddress = debugGRPCAddress
 			}
 			runcPath, err := exec.LookPath("buildkit-runc")
 			if err == nil {
