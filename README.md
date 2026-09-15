@@ -1,14 +1,12 @@
-<!-- markdownlint-disable MD033 -->
-<h1>
-  <img
-    alt="container-builder-shim icon: frosted coupling and container panel"
-    src="docs/images/container-builder-shim-icon.png"
-    width="70"
-    valign="middle">
-  &nbsp;container-builder-shim
-</h1>
+# container-builder-shim
+
+<!-- markdownlint-disable MD013 MD033 -->
 <p>
+  <img align="left" hspace="20" src="docs/images/container-builder-shim-icon.png" width="147" alt="container-builder-shim icon: a frosted coupling overlapping the standard three-row container service panel" />
   <a href="https://github.com/stephenlclarke/container-builder-shim/actions/workflows/build.yml?query=branch%3Amain"><img alt="CI" src="https://github.com/stephenlclarke/container-builder-shim/actions/workflows/build.yml/badge.svg?branch=main" /></a>
+  <a href="https://github.com/stephenlclarke/container-builder-shim/actions/workflows/docs.yml?query=branch%3Amain"><img alt="Documentation" src="https://github.com/stephenlclarke/container-builder-shim/actions/workflows/docs.yml/badge.svg?branch=main" /></a>
+  <a href="https://github.com/stephenlclarke/container-builder-shim/actions/workflows/release.yml"><img alt="Releases" src="https://github.com/stephenlclarke/container-builder-shim/actions/workflows/release.yml/badge.svg" /></a>
+  <a href="https://github.com/stephenlclarke/container-builder-shim/actions/workflows/current-image.yml?query=branch%3Amain"><img alt="Current image" src="https://github.com/stephenlclarke/container-builder-shim/actions/workflows/current-image.yml/badge.svg?branch=main" /></a>
   <a href="https://github.com/stephenlclarke/container-builder-shim/actions/workflows/sonar.yml?query=branch%3Amain"><img alt="SonarQube" src="https://github.com/stephenlclarke/container-builder-shim/actions/workflows/sonar.yml/badge.svg?branch=main" /></a>
   <a href="https://sonarcloud.io/summary/new_code?id=stephenlclarke_container-builder-shim"><img alt="Quality Gate Status" src="https://sonarcloud.io/api/project_badges/measure?project=stephenlclarke_container-builder-shim&amp;metric=alert_status" /></a>
   <a href="https://sonarcloud.io/summary/new_code?id=stephenlclarke_container-builder-shim"><img alt="Coverage" src="https://sonarcloud.io/api/project_badges/measure?project=stephenlclarke_container-builder-shim&amp;metric=coverage" /></a>
@@ -18,7 +16,10 @@
   <a href="https://sonarcloud.io/summary/new_code?id=stephenlclarke_container-builder-shim"><img alt="Maintainability Rating" src="https://sonarcloud.io/api/project_badges/measure?project=stephenlclarke_container-builder-shim&amp;metric=sqale_rating" /></a>
   <a href="https://sonarcloud.io/summary/new_code?id=stephenlclarke_container-builder-shim"><img alt="Duplicated Lines" src="https://sonarcloud.io/api/project_badges/measure?project=stephenlclarke_container-builder-shim&amp;metric=duplicated_lines_density" /></a>
   <a href="https://sonarcloud.io/summary/new_code?id=stephenlclarke_container-builder-shim"><img alt="Lines of Code" src="https://sonarcloud.io/api/project_badges/measure?project=stephenlclarke_container-builder-shim&amp;metric=ncloc" /></a>
+  <img alt="Repo Visitors" src="https://visitor-badge.laobi.icu/badge?page_id=stephenlclarke.container-builder-shim" />
 </p>
+<br clear="left" />
+<br>
 <!-- markdownlint-enable MD033 -->
 
 **container-builder-shim** is a lightweight bridge that connects BuildKit's session protocol with containerization's Build API. It enables compatibility between BuildKit (the build engine behind Docker) and containerization by translating messages and file transfers between their respective APIs.
