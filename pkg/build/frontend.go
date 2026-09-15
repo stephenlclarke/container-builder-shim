@@ -41,6 +41,7 @@ import (
 	"github.com/moby/buildkit/frontend/subrequests/lint"
 	"github.com/moby/buildkit/solver/pb"
 	"github.com/moby/buildkit/util/progress/progresswriter"
+	"github.com/opencontainers/go-digest"
 	ocispecs "github.com/opencontainers/image-spec/specs-go/v1"
 	"github.com/sirupsen/logrus"
 
@@ -185,138 +186,135 @@ func resolveStates(ctx context.Context, bopts *BOpts, platform ocispecs.Platform
 		return nil, err
 	}
 
-	wg := sync.WaitGroup{}
-	doneCh := make(chan struct{})
-	errCh := make(chan error)
+	resolver := &sourceStateResolver{ctx: ctx, bopts: bopts, log: clog, states: map[string]stateMeta{}}
+	if err := resolveDockerfileStages(dockerfile.EscapeToken, stages, platform, resolver); err != nil {
+		return nil, err
+	}
+	if err := preseedCopyFromSources(stages, platform, resolver.resolve); err != nil {
+		return nil, err
+	}
+	return resolver.states, nil
+}
 
-	states := map[string]stateMeta{}
-	stateLock := sync.Mutex{}
+type sourceStateResolver struct {
+	ctx    context.Context
+	bopts  *BOpts
+	log    func(string, ...interface{})
+	states map[string]stateMeta
+	mutex  sync.Mutex
+}
 
-	resolveSource := func(resolvedBaseStageName string, sourcePlatform ocispecs.Platform) error {
-		if strings.EqualFold(resolvedBaseStageName, "scratch") || strings.EqualFold(resolvedBaseStageName, "context") {
-			return nil
-		}
-
-		ref, err := dref.ParseAnyReference(resolvedBaseStageName)
-		if err != nil {
-			if err == reference.ErrObjectRequired {
-				return nil
-			}
-			return fmt.Errorf("invalid ref: %s", resolvedBaseStageName)
-		}
-
-		clog("[resolver] fetching image...%s", ref.String())
-
-		resolverOpts := sourceresolver.Opt{}
-		resolverOpts.ImageOpt = &sourceresolver.ResolveImageOpt{
-			Platform:    &sourcePlatform,
-			ResolveMode: llb.ResolveModePreferLocal.String(),
-		}
-		resolverOpts.OCILayoutOpt = &sourceresolver.ResolveOCILayoutOpt{
-			Store: sourceresolver.ResolveImageConfigOptStore{
-				StoreID:   "container",
-				SessionID: "",
-			},
-		}
-
-		// `resolvedBaseStageName.Result` is the image name as it was specified in the Dockerfile
-		// with the build args applied
-		// NOTE: DO NOT USE `ref.String()` in the call to ResolveImageConfig
-		// `ref`` is the qualified reference, with a default domain
-		// In case of local images, where there is no registry, resolution will fail
-		// due to the addition of the default domain.
-		_, digest, img, err := bopts.Resolver.ResolveImageConfig(ctx, resolvedBaseStageName, resolverOpts)
-		if err != nil {
-			if err == reference.ErrObjectRequired {
-				return nil
-			}
-			return err
-		}
-
-		fqdn := ref.String()
-		if _, ok := ref.(dref.Digested); !ok {
-			fqdn += "@" + digest.String()
-		}
-		st := llb.OCILayout(fqdn, llb.OCIStore("", "container"), llb.Platform(sourcePlatform))
-
-		named, err := dref.ParseNormalizedNamed(ref.String())
-		if err != nil {
-			return fmt.Errorf("invalid context name %s %v", ref.String(), err)
-		}
-		// pname constructs a platform-qualified image reference in the format buildkit requires for digest resolution
-		name := strings.TrimSuffix(dref.FamiliarString(named), ":latest")
-		pname := name + "::" + platforms.FormatAll(platforms.Normalize(sourcePlatform))
-
-		imgMetaMap := map[string][]byte{
-			exptypes.ExporterImageConfigKey: img,
-		}
-		imgMeta, err := json.Marshal(imgMetaMap)
-		if err != nil {
-			return err
-		}
-
-		stateLock.Lock()
-		states[pname] = stateMeta{
-			state:   st.Platform(sourcePlatform),
-			imgMeta: imgMeta,
-		}
-		stateLock.Unlock()
+func (r *sourceStateResolver) resolve(name string, platform ocispecs.Platform) error {
+	if strings.EqualFold(name, "scratch") || strings.EqualFold(name, "context") {
 		return nil
 	}
+	ref, err := dref.ParseAnyReference(name)
+	if err != nil {
+		if err == reference.ErrObjectRequired {
+			return nil
+		}
+		return fmt.Errorf("invalid ref: %s", name)
+	}
+	r.log("[resolver] fetching image...%s", ref.String())
+	digest, image, err := r.resolveImage(name, platform)
+	if err != nil {
+		return err
+	}
+	if digest == "" {
+		return nil
+	}
+	stateName, state, metadata, err := resolvedImageState(ref, digest.String(), image, platform)
+	if err != nil {
+		return err
+	}
+	r.mutex.Lock()
+	r.states[stateName] = stateMeta{state: state, imgMeta: metadata}
+	r.mutex.Unlock()
+	return nil
+}
 
-	for i, stage := range stages {
+func (r *sourceStateResolver) resolveImage(name string, platform ocispecs.Platform) (digest.Digest, []byte, error) {
+	options := sourceresolver.Opt{
+		ImageOpt:     &sourceresolver.ResolveImageOpt{Platform: &platform, ResolveMode: llb.ResolveModePreferLocal.String()},
+		OCILayoutOpt: &sourceresolver.ResolveOCILayoutOpt{Store: sourceresolver.ResolveImageConfigOptStore{StoreID: "container"}},
+	}
+	_, imageDigest, image, err := r.bopts.Resolver.ResolveImageConfig(r.ctx, name, options)
+	if err == reference.ErrObjectRequired {
+		return "", nil, nil
+	}
+	return imageDigest, image, err
+}
+
+func resolvedImageState(ref dref.Reference, imageDigest string, image []byte, platform ocispecs.Platform) (string, llb.State, []byte, error) {
+	fqdn := ref.String()
+	if _, alreadyDigested := ref.(dref.Digested); !alreadyDigested {
+		fqdn += "@" + imageDigest
+	}
+	state := llb.OCILayout(fqdn, llb.OCIStore("", "container"), llb.Platform(platform)).Platform(platform)
+	named, err := dref.ParseNormalizedNamed(ref.String())
+	if err != nil {
+		return "", llb.State{}, nil, fmt.Errorf("invalid context name %s %v", ref.String(), err)
+	}
+	name := strings.TrimSuffix(dref.FamiliarString(named), ":latest") + "::" + platforms.FormatAll(platforms.Normalize(platform))
+	metadata, err := json.Marshal(map[string][]byte{exptypes.ExporterImageConfigKey: image})
+	return name, state, metadata, err
+}
+
+func resolveDockerfileStages(escapeToken rune, stages []instructions.Stage, platform ocispecs.Platform, resolver *sourceStateResolver) error {
+	errCh := make(chan error, len(stages))
+	var wg sync.WaitGroup
+	for index, stage := range stages {
 		wg.Add(1)
-		go func(i int, stage instructions.Stage) {
+		go func() {
 			defer wg.Done()
-
-			shlex := shell.NewLex(dockerfile.EscapeToken)
-			resolvedGlobalArgs := globalArgs(bopts.BuildPlatforms[0], platform, bopts.BuildArgs, bopts.Target)
-			resolvedBaseStageName, err := shlex.ProcessWordWithMatches(stage.BaseName, resolvedGlobalArgs)
-			if err != nil {
-				errCh <- fmt.Errorf("invalid arg for stage[%s]: %v", stage.BaseName, err)
-				return
-			}
-
-			// if platform is specified for the stage, parse and use as the target platform
-			stagePlatform := platform
-			if stage.Platform != "" {
-				resolvedStagePlatformStr, err := shlex.ProcessWordWithMatches(stage.Platform, resolvedGlobalArgs)
-				if err != nil {
-					errCh <- fmt.Errorf("invalid platform for stage[%s]: %v", stage.BaseName, err)
-					return
-				}
-				resolvedStagePlatform, err := platforms.Parse(resolvedStagePlatformStr.Result)
-				if err != nil {
-					errCh <- fmt.Errorf("invalid platform for stage[%s]: %v", stage.BaseName, err)
-					return
-				}
-				stagePlatform = resolvedStagePlatform
-			}
-
-			// if there's another stage with this name before the current stage, that will be used as the source
-			namedIndex, hasNamedStage := instructions.HasStage(stages, resolvedBaseStageName.Result)
-			if hasNamedStage && namedIndex < i {
-				return
-			}
-
-			if err := resolveSource(resolvedBaseStageName.Result, stagePlatform); err != nil {
-				logrus.Errorf("error resolving image: %v", err)
+			if err := resolveDockerfileStage(escapeToken, stages, index, stage, platform, resolver); err != nil {
 				errCh <- err
-				return
 			}
-		}(i, stage)
+		}()
 	}
-	go func() { wg.Wait(); doneCh <- struct{}{} }()
-	select {
-	case err := <-errCh:
-		return nil, err
-	case <-doneCh:
+	wg.Wait()
+	close(errCh)
+	for err := range errCh {
+		return err
 	}
+	return nil
+}
 
-	if err := preseedCopyFromSources(stages, platform, resolveSource); err != nil {
-		return nil, err
+func resolveDockerfileStage(escapeToken rune, stages []instructions.Stage, index int, stage instructions.Stage, platform ocispecs.Platform, resolver *sourceStateResolver) error {
+	lexer := shell.NewLex(escapeToken)
+	global := globalArgs(resolver.bopts.BuildPlatforms[0], platform, resolver.bopts.BuildArgs, resolver.bopts.Target)
+	baseName, err := lexer.ProcessWordWithMatches(stage.BaseName, global)
+	if err != nil {
+		return fmt.Errorf("invalid arg for stage[%s]: %v", stage.BaseName, err)
 	}
-	return states, nil
+	stagePlatform, err := resolvedStagePlatform(lexer, stage, global, platform)
+	if err != nil {
+		return err
+	}
+	namedIndex, hasNamedStage := instructions.HasStage(stages, baseName.Result)
+	if hasNamedStage && namedIndex < index {
+		return nil
+	}
+	if err := resolver.resolve(baseName.Result, stagePlatform); err != nil {
+		logrus.Errorf("error resolving image: %v", err)
+		return err
+	}
+	return nil
+}
+
+func resolvedStagePlatform(lexer *shell.Lex, stage instructions.Stage, global shell.EnvGetter, fallback ocispecs.Platform) (ocispecs.Platform, error) {
+	if stage.Platform == "" {
+		return fallback, nil
+	}
+	value, err := lexer.ProcessWordWithMatches(stage.Platform, global)
+	if err != nil {
+		return ocispecs.Platform{}, fmt.Errorf("invalid platform for stage[%s]: %v", stage.BaseName, err)
+	}
+	parsed, err := platforms.Parse(value.Result)
+	if err != nil {
+		return ocispecs.Platform{}, fmt.Errorf("invalid platform for stage[%s]: %v", stage.BaseName, err)
+	}
+	return parsed, nil
 }
 
 type frontendClient struct {

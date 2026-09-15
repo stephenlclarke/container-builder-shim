@@ -81,8 +81,10 @@ jobs:
         run: |
           set -euo pipefail
           context=()
+          period=()
           if [[ "${GITHUB_EVENT_NAME}" == 'pull_request' ]]; then
             context+=(--data-urlencode 'pullRequest=${{ github.event.pull_request.number }}')
+            period+=(--data-urlencode 'inNewCodePeriod=true')
           else
             context+=(--data-urlencode "branch=${GITHUB_REF_NAME}")
           fi
@@ -90,16 +92,16 @@ jobs:
             curl --fail --silent --show-error --user "${SONAR_TOKEN}:" --get \
               --data-urlencode 'componentKeys=stephenlclarke_container-builder-shim' \
               --data-urlencode 'resolved=false' \
-              --data-urlencode 'inNewCodePeriod=true' \
               --data-urlencode 'ps=100' \
+              "${period[@]}" \
               "${context[@]}" \
               https://sonarcloud.io/api/issues/search
           )"
           hotspots="$(
             curl --fail --silent --show-error --user "${SONAR_TOKEN}:" --get \
               --data-urlencode 'projectKey=stephenlclarke_container-builder-shim' \
-              --data-urlencode 'inNewCodePeriod=true' \
               --data-urlencode 'ps=100' \
+              "${period[@]}" \
               "${context[@]}" \
               https://sonarcloud.io/api/hotspots/search
           )"

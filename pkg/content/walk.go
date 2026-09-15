@@ -91,7 +91,9 @@ func (r *ContentStoreProxy) Walk(ctx context.Context, fn contentx.WalkFunc, filt
 			"method": "/containerd.services.content.v1.Content/Walk",
 		},
 	}
-	processor := stream.NewDemuxWithContext(cancellableCtx, id, stream.FilterByImageTransferID(id), func(any) {})
+	processor := stream.NewDemuxWithContext(cancellableCtx, id, stream.FilterByImageTransferID(id), func(any) {
+		// The operation-scoped context owns cleanup when this walk returns.
+	})
 	r.RegisterDemux(id, processor)
 	if err := r.Send(&api.ServerStream{
 		BuildId: id,

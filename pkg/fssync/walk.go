@@ -96,7 +96,9 @@ func (f *FS) Walk(ctx context.Context, target string, fn fs.WalkDirFunc) error {
 	}
 
 	id := uuid.NewString()
-	demux := stream.NewDemuxWithContext(cancellableCtx, id, stream.FilterByBuildID(id), func(any) {})
+	demux := stream.NewDemuxWithContext(cancellableCtx, id, stream.FilterByBuildID(id), func(any) {
+		// The operation-scoped context owns cleanup when this walk returns.
+	})
 	f.proxy.RegisterDemux(id, demux)
 
 	followPaths := walkMeta.FollowPaths

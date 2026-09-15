@@ -43,7 +43,6 @@ var _ api.BuilderServer = &BuilderProxy{}
 type BuilderProxy struct {
 	api.UnimplementedBuilderServer
 
-	ctx    context.Context
 	exitCh chan error
 	path   string
 }
@@ -139,7 +138,6 @@ func Run(ctx context.Context, basePath string, socketConfig SocketConfig) error 
 
 	reflection.Register(grpcServer)
 	api.RegisterBuilderServer(grpcServer, &BuilderProxy{
-		ctx:    newCtx,
 		path:   basePath,
 		exitCh: exitCh,
 	})
