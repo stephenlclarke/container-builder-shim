@@ -350,38 +350,35 @@ func TestGlobalArgs(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := globalArgs(tt.buildPlatform, tt.targetPlatform, tt.buildArgs, tt.target)
-
-			// Convert to map for comparison
-			gotMap := make(map[string]string)
-			for _, key := range got.Keys() {
-				value, found := got.Get(key)
-				if found {
-					gotMap[key] = value
-				}
-			}
-
-			if !reflect.DeepEqual(gotMap, tt.want) {
-				t.Errorf("globalArgs() = %v, want %v", gotMap, tt.want)
-			}
-
-			// Verify that all expected keys are present
-			for wantKey, wantValue := range tt.want {
-				gotValue, found := got.Get(wantKey)
-				if !found {
-					t.Errorf("globalArgs() missing key %q", wantKey)
-				} else if gotValue != wantValue {
-					t.Errorf("globalArgs() key %q = %q, want %q", wantKey, gotValue, wantValue)
-				}
-			}
-
-			// Verify that no unexpected keys are present
-			for _, gotKey := range got.Keys() {
-				if _, expected := tt.want[gotKey]; !expected {
-					t.Errorf("globalArgs() unexpected key %q", gotKey)
-				}
-			}
+			assertGlobalArgs(t, tt.buildPlatform, tt.targetPlatform, tt.buildArgs, tt.target, tt.want)
 		})
+	}
+}
+
+func assertGlobalArgs(t *testing.T, buildPlatform, targetPlatform ocispecs.Platform, buildArgs map[string]string, target string, want map[string]string) {
+	t.Helper()
+	got := globalArgs(buildPlatform, targetPlatform, buildArgs, target)
+	gotMap := make(map[string]string)
+	for _, key := range got.Keys() {
+		if value, found := got.Get(key); found {
+			gotMap[key] = value
+		}
+	}
+	if !reflect.DeepEqual(gotMap, want) {
+		t.Errorf("globalArgs() = %v, want %v", gotMap, want)
+	}
+	for wantKey, wantValue := range want {
+		gotValue, found := got.Get(wantKey)
+		if !found {
+			t.Errorf("globalArgs() missing key %q", wantKey)
+		} else if gotValue != wantValue {
+			t.Errorf("globalArgs() key %q = %q, want %q", wantKey, gotValue, wantValue)
+		}
+	}
+	for _, gotKey := range got.Keys() {
+		if _, expected := want[gotKey]; !expected {
+			t.Errorf("globalArgs() unexpected key %q", gotKey)
+		}
 	}
 }
 
@@ -447,19 +444,21 @@ func TestExtractSSHAgentConfigs(t *testing.T) {
 	}
 }
 
+type resolveStatesTestCase struct {
+	name                  string
+	dockerfile            string
+	buildPlatforms        []ocispecs.Platform
+	targetPlatform        ocispecs.Platform
+	buildArgs             map[string]string
+	target                string
+	expectedResolverCalls []testResolverCall
+	expectedStates        int
+	wantErr               bool
+	errContains           string
+}
+
 func TestResolveStates(t *testing.T) {
-	tests := []struct {
-		name                  string
-		dockerfile            string
-		buildPlatforms        []ocispecs.Platform
-		targetPlatform        ocispecs.Platform
-		buildArgs             map[string]string
-		target                string
-		expectedResolverCalls []testResolverCall
-		expectedStates        int
-		wantErr               bool
-		errContains           string
-	}{
+	tests := []resolveStatesTestCase{
 		// Error cases
 		{
 			name: "invalid dockerfile syntax should error",
@@ -812,106 +811,81 @@ LABEL maintainer="${MAINTAINER}" \
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			ctx, cancel := context.WithCancel(context.Background())
-			defer cancel()
-
-			// Create intercepting resolver
-			interceptor, cleanup, err := newTestInterceptingResolver(t, ctx)
-			if err != nil {
-				t.Fatalf("Failed to create intercepting resolver: %v", err)
-			}
-			defer cleanup()
-
-			// Create BOpts with the intercepting resolver
-			bopts := &BOpts{
-				Dockerfile:     []byte(tt.dockerfile),
-				BuildPlatforms: tt.buildPlatforms,
-				BuildArgs:      tt.buildArgs,
-				Target:         tt.target,
-				Resolver:       interceptor.ResolverProxy,
-			}
-
-			clog := func(format string, params ...any) {
-				// No-op for tests
-			}
-
-			// Call resolveStates
-			states, err := resolveStates(ctx, bopts, tt.targetPlatform, clog)
-
-			if tt.wantErr {
-				if err == nil {
-					t.Errorf("resolveStates() expected error, got nil")
-					return
-				}
-				if tt.errContains != "" && !strings.Contains(err.Error(), tt.errContains) {
-					t.Errorf("resolveStates() error = %v, want error containing %q", err, tt.errContains)
-				}
-				return
-			}
-
-			if err != nil {
-				t.Errorf("resolveStates() unexpected error = %v", err)
-				return
-			}
-
-			// Check number of states
-			if len(states) != tt.expectedStates {
-				t.Errorf("resolveStates() got %d states, want %d states", len(states), tt.expectedStates)
-			}
-
-			// Check resolver calls
-			if len(interceptor.calls) != len(tt.expectedResolverCalls) {
-				t.Errorf("resolver called %d times, expected %d calls", len(interceptor.calls), len(tt.expectedResolverCalls))
-				t.Logf("Actual calls: %+v", interceptor.calls)
-				t.Logf("Expected calls: %+v", tt.expectedResolverCalls)
-				return
-			}
-
-			// Verify resolver calls (order-agnostic for multi-stage builds)
-			expectedCallsMap := make(map[string]testResolverCall)
-			for _, expectedCall := range tt.expectedResolverCalls {
-				expectedCallsMap[expectedCall.ref] = expectedCall
-			}
-
-			for i, actualCall := range interceptor.calls {
-				expectedCall, found := expectedCallsMap[actualCall.ref]
-				if !found {
-					t.Errorf("resolver call %d: unexpected ref %q", i, actualCall.ref)
-					continue
-				}
-
-				if actualCall.platform == nil && expectedCall.platform != nil {
-					t.Errorf("resolver call %d (%s): got nil platform, want %+v", i, actualCall.ref, expectedCall.platform)
-					continue
-				}
-				if actualCall.platform != nil && expectedCall.platform == nil {
-					t.Errorf("resolver call %d (%s): got platform %+v, want nil", i, actualCall.ref, actualCall.platform)
-					continue
-				}
-				if actualCall.platform != nil && expectedCall.platform != nil {
-					matcher := platforms.NewMatcher(*expectedCall.platform)
-					if !matcher.Match(*actualCall.platform) {
-						t.Errorf("resolver call %d (%s): got platform %+v, want %+v", i, actualCall.ref, actualCall.platform, expectedCall.platform)
-					}
-				}
-				// Remove from expected map to ensure we don't match it twice
-				delete(expectedCallsMap, actualCall.ref)
-			}
-
-			// Check if all expected calls were matched
-			for ref := range expectedCallsMap {
-				t.Errorf("Expected resolver call for %q was not found", ref)
-			}
-
-			// Log successful verification
-			t.Logf("Successfully intercepted %d resolver calls:", len(interceptor.calls))
-			for i, call := range interceptor.calls {
-				platformStr := call.platform.OS + "/" + call.platform.Architecture
-				if call.platform.Variant != "" {
-					platformStr += "/" + call.platform.Variant
-				}
-				t.Logf("  Call %d: %s -> platform=%s", i+1, call.ref, platformStr)
-			}
+			runResolveStatesTest(t, tt)
 		})
+	}
+}
+
+func runResolveStatesTest(t *testing.T, testCase resolveStatesTestCase) {
+	t.Helper()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	interceptor, cleanup, err := newTestInterceptingResolver(t, ctx)
+	if err != nil {
+		t.Fatalf("Failed to create intercepting resolver: %v", err)
+	}
+	defer cleanup()
+	bopts := &BOpts{Dockerfile: []byte(testCase.dockerfile), BuildPlatforms: testCase.buildPlatforms,
+		BuildArgs: testCase.buildArgs, Target: testCase.target, Resolver: interceptor.ResolverProxy}
+	states, err := resolveStates(ctx, bopts, testCase.targetPlatform, func(string, ...any) {})
+	if assertResolveStatesError(t, testCase, err) {
+		return
+	}
+	if len(states) != testCase.expectedStates {
+		t.Errorf("resolveStates() got %d states, want %d states", len(states), testCase.expectedStates)
+	}
+	assertResolverCalls(t, interceptor.calls, testCase.expectedResolverCalls)
+}
+
+func assertResolveStatesError(t *testing.T, testCase resolveStatesTestCase, err error) bool {
+	t.Helper()
+	if testCase.wantErr {
+		if err == nil {
+			t.Error("resolveStates() expected error, got nil")
+		} else if testCase.errContains != "" && !strings.Contains(err.Error(), testCase.errContains) {
+			t.Errorf("resolveStates() error = %v, want error containing %q", err, testCase.errContains)
+		}
+		return true
+	}
+	if err != nil {
+		t.Errorf("resolveStates() unexpected error = %v", err)
+		return true
+	}
+	return false
+}
+
+func assertResolverCalls(t *testing.T, actual, expected []testResolverCall) {
+	t.Helper()
+	if len(actual) != len(expected) {
+		t.Fatalf("resolver called %d times, expected %d calls; actual=%+v expected=%+v", len(actual), len(expected), actual, expected)
+	}
+	expectedByReference := make(map[string]testResolverCall, len(expected))
+	for _, call := range expected {
+		expectedByReference[call.ref] = call
+	}
+	for index, call := range actual {
+		expectedCall, found := expectedByReference[call.ref]
+		if !found {
+			t.Errorf("resolver call %d: unexpected ref %q", index, call.ref)
+			continue
+		}
+		assertResolverPlatform(t, index, call, expectedCall)
+		delete(expectedByReference, call.ref)
+	}
+	for ref := range expectedByReference {
+		t.Errorf("expected resolver call for %q was not found", ref)
+	}
+}
+
+func assertResolverPlatform(t *testing.T, index int, actual, expected testResolverCall) {
+	t.Helper()
+	if actual.platform == nil || expected.platform == nil {
+		if actual.platform != expected.platform {
+			t.Errorf("resolver call %d (%s): platform mismatch got=%+v want=%+v", index, actual.ref, actual.platform, expected.platform)
+		}
+		return
+	}
+	if !platforms.NewMatcher(*expected.platform).Match(*actual.platform) {
+		t.Errorf("resolver call %d (%s): got platform %+v, want %+v", index, actual.ref, actual.platform, expected.platform)
 	}
 }

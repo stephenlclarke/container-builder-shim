@@ -74,44 +74,48 @@ type TerminalCommand struct {
 }
 
 func (r *StdioProxy) Filter(c *api.ClientStream) error {
-	if cmd := c.GetCommand(); cmd != nil {
-
-		byteCmd, err := base64.RawStdEncoding.DecodeString(cmd.Command)
-		if err != nil {
-			return stream.ErrIgnorePacket
-		}
-
-		termCmd := &TerminalCommand{}
-		if err := json.Unmarshal(byteCmd, termCmd); err != nil {
-			return stream.ErrIgnorePacket
-		}
-
-		if termCmd.CommandType != "terminal" {
-			return stream.ErrIgnorePacket
-		}
-
-		switch termCmd.Code {
-		case "winch":
-			if r.console == nil {
-				return stream.ErrNotATTY
-			}
-			if termCmd.Rows > 0 && termCmd.Cols > 0 {
-				if err := r.console.Resize(console.WinSize{
-					Height: uint16(termCmd.Rows),
-					Width:  uint16(termCmd.Cols),
-				}); err != nil {
-					return err
-				}
-			}
-			return nil
-		case "ack":
-			return nil
-		default:
-			return fmt.Errorf("invalid terminal command: %s", termCmd.Code)
-		}
+	command := c.GetCommand()
+	if command == nil {
+		return stream.ErrIgnorePacket
 	}
+	terminalCommand, err := decodeTerminalCommand(command.Command)
+	if err != nil || terminalCommand.CommandType != "terminal" {
+		return stream.ErrIgnorePacket
+	}
+	return r.handleTerminalCommand(terminalCommand)
+}
 
-	return stream.ErrIgnorePacket
+func (r *StdioProxy) handleTerminalCommand(command *TerminalCommand) error {
+	switch command.Code {
+	case "winch":
+		return r.resizeTerminal(command.Rows, command.Cols)
+	case "ack":
+		return nil
+	default:
+		return fmt.Errorf("invalid terminal command: %s", command.Code)
+	}
+}
+
+func (r *StdioProxy) resizeTerminal(rows, columns int) error {
+	if r.console == nil {
+		return stream.ErrNotATTY
+	}
+	if rows <= 0 || columns <= 0 {
+		return nil
+	}
+	return r.console.Resize(console.WinSize{Height: uint16(rows), Width: uint16(columns)})
+}
+
+func decodeTerminalCommand(encoded string) (*TerminalCommand, error) {
+	payload, err := base64.RawStdEncoding.DecodeString(encoded)
+	if err != nil {
+		return nil, err
+	}
+	command := &TerminalCommand{}
+	if err := json.Unmarshal(payload, command); err != nil {
+		return nil, err
+	}
+	return command, nil
 }
 
 func (r *StdioProxy) Read(p []byte) (int, error) {

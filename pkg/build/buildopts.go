@@ -287,140 +287,122 @@ type BOpts struct {
 }
 
 func NewBuildOpts(ctx context.Context, basePath string, contextMap map[string][]string) (*BOpts, error) {
-	first := func(key string) (string, bool) {
-		values, ok := contextMap[key]
-		if !ok {
-			return "", false
-		}
-		return values[0], true
+	request, err := parseBuildRequest(contextMap)
+	if err != nil {
+		return nil, err
 	}
+	services, err := createBuildServices(ctx, basePath, request)
+	if err != nil {
+		return nil, err
+	}
+	return &BOpts{
+		BuildID:        request.buildID,
+		Dockerfile:     request.dockerfile,
+		Dockerignore:   request.dockerignore,
+		Tag:            request.tag,
+		BuildPlatforms: request.buildPlatforms,
+		Platforms:      request.platforms,
+		ContextDir:     request.contextDir,
+		ContentStore:   services.content,
+		FSSync:         services.fssync,
+		NoCache:        request.noCache,
+		Resolver:       resolver.NewResolverProxy(),
+		ProgressWriter: services.progress,
+		Stdio:          services.stdio,
+		Target:         request.target,
+		Labels:         request.labels,
+		BuildArgs:      request.buildArgs,
+		BuildContexts:  request.buildContexts,
+		Secrets:        request.secrets,
+		SSH:            request.ssh,
+		Entitlements:   request.entitlements,
+		Attestations:   request.attestations,
+		AddHosts:       contextMap[KeyAddHosts],
+		Network:        request.network,
+		ShmSize:        lastMetadataValue(contextMap[KeyShmSize]),
+		Ulimits:        contextMap[KeyUlimit],
+		CacheIn:        contextMap[KeyCacheIn],
+		CacheOut:       contextMap[KeyCacheOut],
+		Outputs:        contextMap[KeyOutput],
+		basePath:       filepath.Join(basePath, request.buildID),
+		Check:          request.check,
+	}, nil
+}
 
-	buildID, ok := first(KeyBuildID)
+type parsedBuildRequest struct {
+	buildID, tag, contextDir, target, progress string
+	dockerfile, dockerignore                   []byte
+	buildPlatforms, platforms                  []ocispecs.Platform
+	noCache                                    *string
+	labels, buildArgs, buildContexts           map[string]string
+	secrets                                    map[string][]byte
+	ssh                                        []sshprovider.AgentConfig
+	entitlements                               []string
+	attestations                               map[string]string
+	network                                    string
+	check                                      bool
+}
+
+func parseBuildRequest(contextMap map[string][]string) (*parsedBuildRequest, error) {
+	buildID, ok := firstMetadataValue(contextMap, KeyBuildID)
 	if !ok {
 		return nil, ErrMissingBuildID
 	}
-
-	dockerfileBase64Bytes, ok := first(KeyDockerfile)
-	if !ok {
-		return nil, ErrMissingContextDockerfile
-	}
-
-	dockerfileBytes, err := base64.StdEncoding.DecodeString(dockerfileBase64Bytes)
-	if err != nil {
-		return nil, err
-	}
-
-	dockerignoreBytes := []byte(DockerfileStaging)
-	if dockerignoreBase64Bytes, ok := first(KeyDockerignore); ok {
-		dockerignoreBytes, err = base64.StdEncoding.DecodeString(dockerignoreBase64Bytes)
-		if err != nil {
-			return nil, err
-		}
-
-		dockerignoreBytes = append(dockerignoreBytes, []byte("\n"+DockerfileStaging)...)
-	}
-
-	progress, ok := first(KeyProgress)
-	if !ok {
-		progress = "auto"
-	}
-	switch progress {
-	case "auto", "tty", "plain":
-	default:
-		return nil, ErrInvalidProgress
-	}
-
-	var noCache *string
-	if values, ok := contextMap[KeyNoCache]; ok {
-		value := lastMetadataValue(values)
-		noCache = &value
-	}
-
-	tag, ok := first(KeyTag)
+	tag, ok := firstMetadataValue(contextMap, KeyTag)
 	if !ok {
 		return nil, ErrMissingContextRef
 	}
-
-	ctxDir := "."
-	if c, ok := first(KeyContext); ok {
-		ctxDir = c
-	}
-
-	bps := utils.BuildPlatforms()
-	if len(bps) == 0 {
-		bps = append(bps, platforms.DefaultSpec())
-	}
-
-	pls, err := func() ([]ocispecs.Platform, error) {
-		pls := []ocispecs.Platform{}
-		values, ok := contextMap[KeyPlatforms]
-		if !ok {
-			return []ocispecs.Platform{platforms.DefaultSpec()}, nil
-		}
-		for _, plStr := range values {
-			pl, err := platforms.Parse(plStr)
-			if err != nil {
-				return nil, err
-			}
-			pls = append(pls, pl)
-		}
-		return pls, nil
-	}()
+	dockerfile, dockerignore, err := decodeDockerfileInputs(contextMap)
 	if err != nil {
 		return nil, err
 	}
-
-	target := ""
-	if tStr, ok := first(KeyTarget); ok {
-		target = tStr
+	progress, err := parseProgress(contextMap)
+	if err != nil {
+		return nil, err
 	}
-
-	mapExtract := func(key string) map[string]string {
-		values, ok := contextMap[key]
-		if !ok {
-			return map[string]string{}
-		}
-		args := map[string]string{}
-		for _, label := range values {
-			parts := strings.SplitN(label, "=", 2)
-			switch len(parts) {
-			case 1:
-				args[parts[0]] = ""
-			case 2:
-				args[parts[0]] = parts[1]
-			}
-		}
-		return args
+	platformValues, err := parseTargetPlatforms(contextMap[KeyPlatforms])
+	if err != nil {
+		return nil, err
 	}
-	mapExtractB64 := func(key string) (map[string][]byte, error) {
-		values, ok := contextMap[key]
-		if !ok {
-			return map[string][]byte{}, nil
-		}
-		args := map[string][]byte{}
-		for _, label := range values {
-			parts := strings.SplitN(label, "=", 2)
-			switch len(parts) {
-			case 1:
-				args[parts[0]] = []byte{}
-			case 2:
-				dat, err := base64.StdEncoding.DecodeString(parts[1])
-				if err != nil {
-					return nil, err
-				}
-				args[parts[0]] = dat
-			}
-		}
-		return args, nil
+	features, err := parseBuildFeatures(contextMap)
+	if err != nil {
+		return nil, err
 	}
+	buildPlatforms := utils.BuildPlatforms()
+	if len(buildPlatforms) == 0 {
+		buildPlatforms = append(buildPlatforms, platforms.DefaultSpec())
+	}
+	contextDir, _ := firstMetadataValue(contextMap, KeyContext)
+	if contextDir == "" {
+		contextDir = "."
+	}
+	target, _ := firstMetadataValue(contextMap, KeyTarget)
+	_, check := firstMetadataValue(contextMap, KeyCheck)
+	return &parsedBuildRequest{
+		buildID: buildID, tag: tag, contextDir: contextDir, target: target, progress: progress,
+		dockerfile: dockerfile, dockerignore: dockerignore, buildPlatforms: buildPlatforms, platforms: platformValues,
+		noCache: features.noCache, labels: features.labels, buildArgs: features.buildArgs,
+		buildContexts: features.buildContexts, secrets: features.secrets, ssh: features.ssh,
+		entitlements: features.entitlements, attestations: features.attestations, network: features.network, check: check,
+	}, nil
+}
 
-	labels := mapExtract(KeyLabels)
-	buildArgs := mapExtract(KeyBuildArgs)
+type parsedBuildFeatures struct {
+	noCache                          *string
+	labels, buildArgs, buildContexts map[string]string
+	secrets                          map[string][]byte
+	ssh                              []sshprovider.AgentConfig
+	entitlements                     []string
+	attestations                     map[string]string
+	network                          string
+}
+
+func parseBuildFeatures(contextMap map[string][]string) (*parsedBuildFeatures, error) {
 	buildContexts, err := extractBuildContexts(contextMap[KeyBuildContexts])
 	if err != nil {
 		return nil, err
 	}
-	secrets, err := mapExtractB64(KeySecrets)
+	secrets, err := extractBase64Map(contextMap[KeySecrets])
 	if err != nil {
 		return nil, err
 	}
@@ -440,126 +422,199 @@ func NewBuildOpts(ctx context.Context, basePath string, contextMap map[string][]
 	if err != nil {
 		return nil, err
 	}
-	cacheIn := contextMap[KeyCacheIn]
-	cacheOut := contextMap[KeyCacheOut]
-	outputs := contextMap[KeyOutput]
-	_, check := first(KeyCheck)
+	var noCache *string
+	if values, ok := contextMap[KeyNoCache]; ok {
+		value := lastMetadataValue(values)
+		noCache = &value
+	}
+	return &parsedBuildFeatures{
+		noCache: noCache, labels: extractStringMap(contextMap[KeyLabels]), buildArgs: extractStringMap(contextMap[KeyBuildArgs]),
+		buildContexts: buildContexts, secrets: secrets, ssh: ssh, entitlements: entitlementValues,
+		attestations: attestations, network: network,
+	}, nil
+}
 
-	stdioProxy, err := stdio.NewStdioProxy(ctx, progress == "tty")
+type buildServices struct {
+	stdio    *stdio.StdioProxy
+	progress progresswriter.Writer
+	fssync   *fssync.FSSyncProxy
+	content  *content.ContentStoreProxy
+}
+
+func createBuildServices(ctx context.Context, basePath string, request *parsedBuildRequest) (*buildServices, error) {
+	stdioProxy, err := stdio.NewStdioProxy(ctx, request.progress == "tty")
 	if err != nil {
 		return nil, err
 	}
-
-	dockerfile, err := parser.Parse(bytes.NewReader(dockerfileBytes))
+	dockerfile, err := parser.Parse(bytes.NewReader(request.dockerfile))
 	if err != nil {
 		return nil, err
 	}
-
 	_, metaArgs, err := instructions.Parse(dockerfile.AST, nil)
 	if err != nil {
 		return nil, err
 	}
-
-	for _, metaArg := range metaArgs {
-		for _, arg := range metaArg.Args {
-			// Only use the dockerfile meta arg if the user did not overwrite it
-			if _, ok := buildArgs[arg.Key]; ok {
-				continue
-			}
-			// Expand with prior args and strip shell quotes
-			resolved, err := shell.NewLex('\\').ProcessWordWithMatches(arg.ValueString(), utils.NewMapGetter(buildArgs))
-			if err != nil {
-				return nil, err
-			}
-			// Save the resolved value for later use
-			buildArgs[arg.Key] = resolved.Result
-		}
+	if err := applyDockerfileMetaArgs(metaArgs, request.buildArgs); err != nil {
+		return nil, err
 	}
-
-	pw, err := progresswriter.NewPrinter(ctx, stdioProxy, progress)
+	progress, err := progresswriter.NewPrinter(ctx, stdioProxy, request.progress)
 	if err != nil {
 		return nil, err
 	}
+	addedGlobs, err := dockerfileAddedGlobs(dockerfile)
+	if err != nil {
+		return nil, err
+	}
+	fssyncProxy, err := fssync.NewFSSyncProxy(".", basePath, addedGlobs, request.dockerfile, request.dockerignore)
+	if err != nil {
+		return nil, err
+	}
+	contentProxy, err := content.NewContentStoreProxy()
+	if err != nil {
+		return nil, err
+	}
+	return &buildServices{stdio: stdioProxy, progress: progress, fssync: fssyncProxy, content: contentProxy}, nil
+}
 
-	// addedGlobs is the fallback value for followpaths when BuildKit does not
-	// supply it. Pre-compute it by scanning the Dockerfile AST for COPY, ADD,
-	// and RUN --mount=type=bind source paths so the host packs only the files
-	// those instructions need rather than the entire context.
+func firstMetadataValue(contextMap map[string][]string, key string) (string, bool) {
+	values, ok := contextMap[key]
+	if !ok || len(values) == 0 {
+		return "", false
+	}
+	return values[0], true
+}
+
+func decodeDockerfileInputs(contextMap map[string][]string) ([]byte, []byte, error) {
+	encodedDockerfile, ok := firstMetadataValue(contextMap, KeyDockerfile)
+	if !ok {
+		return nil, nil, ErrMissingContextDockerfile
+	}
+	dockerfile, err := base64.StdEncoding.DecodeString(encodedDockerfile)
+	if err != nil {
+		return nil, nil, err
+	}
+	dockerignore := []byte(DockerfileStaging)
+	if encodedIgnore, exists := firstMetadataValue(contextMap, KeyDockerignore); exists {
+		dockerignore, err = base64.StdEncoding.DecodeString(encodedIgnore)
+		if err != nil {
+			return nil, nil, err
+		}
+		dockerignore = append(dockerignore, []byte("\n"+DockerfileStaging)...)
+	}
+	return dockerfile, dockerignore, nil
+}
+
+func parseProgress(contextMap map[string][]string) (string, error) {
+	progress, ok := firstMetadataValue(contextMap, KeyProgress)
+	if !ok {
+		return "auto", nil
+	}
+	switch progress {
+	case "auto", "tty", "plain":
+		return progress, nil
+	default:
+		return "", ErrInvalidProgress
+	}
+}
+
+func parseTargetPlatforms(values []string) ([]ocispecs.Platform, error) {
+	if len(values) == 0 {
+		return []ocispecs.Platform{platforms.DefaultSpec()}, nil
+	}
+	parsed := make([]ocispecs.Platform, 0, len(values))
+	for _, value := range values {
+		platform, err := platforms.Parse(value)
+		if err != nil {
+			return nil, err
+		}
+		parsed = append(parsed, platform)
+	}
+	return parsed, nil
+}
+
+func extractStringMap(values []string) map[string]string {
+	result := map[string]string{}
+	for _, value := range values {
+		key, mappedValue, found := strings.Cut(value, "=")
+		if !found {
+			mappedValue = ""
+		}
+		result[key] = mappedValue
+	}
+	return result
+}
+
+func extractBase64Map(values []string) (map[string][]byte, error) {
+	result := map[string][]byte{}
+	for _, value := range values {
+		key, encoded, found := strings.Cut(value, "=")
+		if !found {
+			result[key] = []byte{}
+			continue
+		}
+		decoded, err := base64.StdEncoding.DecodeString(encoded)
+		if err != nil {
+			return nil, err
+		}
+		result[key] = decoded
+	}
+	return result, nil
+}
+
+func applyDockerfileMetaArgs(metaArgs []instructions.ArgCommand, buildArgs map[string]string) error {
+	for _, metaArg := range metaArgs {
+		for _, arg := range metaArg.Args {
+			if _, overridden := buildArgs[arg.Key]; overridden {
+				continue
+			}
+			resolved, err := shell.NewLex('\\').ProcessWordWithMatches(arg.ValueString(), utils.NewMapGetter(buildArgs))
+			if err != nil {
+				return err
+			}
+			buildArgs[arg.Key] = resolved.Result
+		}
+	}
+	return nil
+}
+
+func dockerfileAddedGlobs(dockerfile *parser.Result) ([]string, error) {
 	addedGlobs := []string{}
 	for _, node := range dockerfile.AST.Children {
 		if strings.EqualFold(node.Value, "COPY") || strings.EqualFold(node.Value, "ADD") {
 			addedGlobs = append(addedGlobs, node.Next.Value)
 		}
-
-		// Extract source paths from bind mount flags in RUN commands
 		if strings.EqualFold(node.Value, "RUN") {
-			cmd, err := instructions.ParseInstruction(node)
+			mountGlobs, err := runMountGlobs(node)
 			if err != nil {
-				continue
-			} else if runCmd, ok := cmd.(*instructions.RunCommand); ok {
-				if err := runCmd.Expand(func(word string) (string, error) {
-					// Single word expander to normalize source path
-					source := strings.TrimPrefix(word, "/")
-					normalized := filepath.Clean(source)
-					return normalized, nil
-				}); err != nil {
-					return nil, err
-				}
-				mounts := instructions.GetMounts(runCmd)
-				for _, mount := range mounts {
-					// Only add source paths from bind mounts (not from other stages)
-					if mount.Type == instructions.MountTypeBind && mount.Source != "" && mount.From == "" {
-						addedGlobs = append(addedGlobs, mount.Source)
-					}
-				}
+				return nil, err
 			}
+			addedGlobs = append(addedGlobs, mountGlobs...)
 		}
 	}
+	return addedGlobs, nil
+}
 
-	fssyncProxy, err := fssync.NewFSSyncProxy(".", basePath, addedGlobs, dockerfileBytes, dockerignoreBytes)
+func runMountGlobs(node *parser.Node) ([]string, error) {
+	command, err := instructions.ParseInstruction(node)
 	if err != nil {
+		return nil, nil
+	}
+	runCommand, ok := command.(*instructions.RunCommand)
+	if !ok {
+		return nil, nil
+	}
+	if err := runCommand.Expand(func(word string) (string, error) {
+		return filepath.Clean(strings.TrimPrefix(word, "/")), nil
+	}); err != nil {
 		return nil, err
 	}
-
-	contentProxy, err := content.NewContentStoreProxy()
-	if err != nil {
-		return nil, err
+	result := []string{}
+	for _, mount := range instructions.GetMounts(runCommand) {
+		if mount.Type == instructions.MountTypeBind && mount.Source != "" && mount.From == "" {
+			result = append(result, mount.Source)
+		}
 	}
-
-	bopts := &BOpts{
-		BuildID:        buildID,
-		Dockerfile:     dockerfileBytes,
-		Dockerignore:   dockerignoreBytes,
-		Tag:            tag,
-		BuildPlatforms: bps,
-		Platforms:      pls,
-		ContextDir:     ctxDir,
-		ContentStore:   contentProxy,
-		FSSync:         fssyncProxy,
-		NoCache:        noCache,
-		Resolver:       resolver.NewResolverProxy(),
-		ProgressWriter: pw,
-		Stdio:          stdioProxy,
-		Target:         target,
-		Labels:         labels,
-		BuildArgs:      buildArgs,
-		BuildContexts:  buildContexts,
-		Secrets:        secrets,
-		SSH:            ssh,
-		Entitlements:   entitlementValues,
-		Attestations:   attestations,
-		AddHosts:       contextMap[KeyAddHosts],
-		Network:        network,
-		ShmSize:        lastMetadataValue(contextMap[KeyShmSize]),
-		Ulimits:        contextMap[KeyUlimit],
-		CacheIn:        cacheIn,
-		CacheOut:       cacheOut,
-		Outputs:        outputs,
-		basePath:       filepath.Join(basePath, buildID),
-		Check:          check,
-	}
-
-	return bopts, nil
+	return result, nil
 }
 
 func lastMetadataValue(values []string) string {
