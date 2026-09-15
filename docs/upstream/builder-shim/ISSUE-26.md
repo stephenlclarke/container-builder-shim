@@ -32,4 +32,5 @@ silently become old code at the next version boundary.
 ## Related work
 
 This implementation closes [issue 26](https://github.com/stephenlclarke/container-builder-shim/issues/26)
+through [pull request 27](https://github.com/stephenlclarke/container-builder-shim/pull/27)
 and follows the gate introduced by [pull request 25](https://github.com/stephenlclarke/container-builder-shim/pull/25).
