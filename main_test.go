@@ -17,10 +17,23 @@
 package main
 
 import (
+	"net"
 	"os"
 	"path/filepath"
 	"testing"
 )
+
+func TestDebugEndpointsAreLoopbackOnly(t *testing.T) {
+	for _, address := range []string{debugHTTPAddress, debugGRPCAddress} {
+		host, _, err := net.SplitHostPort(address)
+		if err != nil {
+			t.Fatalf("invalid diagnostic address %q: %v", address, err)
+		}
+		if ip := net.ParseIP(host); ip == nil || !ip.IsLoopback() {
+			t.Fatalf("diagnostic address must be loopback-only: %q", address)
+		}
+	}
+}
 
 func TestPrepareUnixSocketCreatesUsableDirectoryAndRemovesStaleSocket(t *testing.T) {
 	dir := t.TempDir()

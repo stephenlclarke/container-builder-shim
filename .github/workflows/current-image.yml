@@ -14,11 +14,6 @@ on:
         default: main
         type: string
 
-permissions:
-  actions: read
-  contents: write
-  packages: write
-
 concurrency:
   group: publish-current-builder-image-${{ github.event.workflow_run.head_sha || inputs.ref }}
   cancel-in-progress: false
@@ -28,6 +23,9 @@ jobs:
     name: Resolve Publish Context
     if: github.repository == 'stephenlclarke/container-builder-shim'
     runs-on: ubuntu-24.04
+    permissions:
+      actions: read
+      contents: read
     outputs:
       publish: ${{ steps.context.outputs.publish }}
       sha: ${{ steps.context.outputs.sha }}

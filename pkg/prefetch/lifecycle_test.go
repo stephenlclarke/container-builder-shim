@@ -75,6 +75,48 @@ func TestSizeSemantics(t *testing.T) {
 	pf.Close()
 }
 
+func TestClosePreventsNewOperationsAndWaitsForExistingWork(t *testing.T) {
+	mock := newMockReaderAt(100, 0, 0)
+	pf, err := New(mock, 100)
+	if err != nil {
+		t.Fatalf("New failed: %v", err)
+	}
+	p := pf.(*prefetcher)
+
+	if !p.beginOperation() {
+		t.Fatal("Expected operation registration before close")
+	}
+
+	closed := make(chan struct{})
+	go func() {
+		defer close(closed)
+		if err := p.Close(); err != nil {
+			t.Errorf("Close failed: %v", err)
+		}
+	}()
+
+	for !p.closed.Load() {
+		time.Sleep(time.Millisecond)
+	}
+	if p.beginOperation() {
+		p.wg.Done()
+		t.Fatal("Expected operation registration to fail after close started")
+	}
+
+	select {
+	case <-closed:
+		t.Fatal("Close returned before existing work completed")
+	default:
+	}
+
+	p.wg.Done()
+	select {
+	case <-closed:
+	case <-time.After(time.Second):
+		t.Fatal("Close did not return after existing work completed")
+	}
+}
+
 func TestSlidingWindowEviction(t *testing.T) {
 	data := make([]byte, 100)
 	for i := range data {
