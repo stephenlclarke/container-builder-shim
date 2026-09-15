@@ -108,12 +108,11 @@ func (f *FS) Open(path string) (io.ReadCloser, error) {
 	}
 
 	return &File{
-		ctx:      f.ctx,
-		id:       id,
-		info:     info,
-		proxy:    f.proxy,
-		filePath: filePath,
-		rs:       rs,
+		ctx:   f.ctx,
+		id:    id,
+		info:  info,
+		proxy: f.proxy,
+		rs:    rs,
 	}, nil
 }
 

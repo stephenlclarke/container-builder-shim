@@ -32,6 +32,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"net/http"
+	// Register pprof handlers for the explicit loopback-only debug server.
 	_ "net/http/pprof"
 
 	"github.com/apple/container-builder-shim/pkg/buildkit"

@@ -24,7 +24,7 @@ import (
 )
 
 func BuildPlatforms() []ocispecs.Platform {
-	pl := func(arch string, variant string) ocispecs.Platform {
+	pl := func(arch, variant string) ocispecs.Platform {
 		return ocispecs.Platform{
 			Architecture: arch,
 			Variant:      variant,
@@ -47,39 +47,24 @@ func BuildPlatforms() []ocispecs.Platform {
 	// order of platforms matters because this is the order in which
 	// buildkit pulls dependencies for a build
 	sort.SliceStable(pls, func(i, j int) bool {
-		// current architecture should always be at the top of the list
-		if currentPlatform.Architecture == "amd64" {
-			if pls[i].Architecture == "amd64" {
-				return true
-			}
-			if pls[j].Architecture == "amd64" {
-				return false
-			}
-			// arm64/v8 should be the second in the list
-			// then arm/v7, arm/v6
-			if pls[i].Architecture == "arm64" {
-				return true
-			}
-			if pls[j].Architecture == "arm64" {
-				return false
-			}
+		if currentPlatform.Architecture != "amd64" && currentPlatform.Architecture != "arm64" {
+			return pls[i].Architecture < pls[j].Architecture
 		}
-		if currentPlatform.Architecture == "arm64" {
-			if pls[i].Architecture == "arm64" {
-				return true
-			}
-			if pls[j].Architecture == "arm64" {
-				return false
-			}
-			// amd64 should be provided only after arm64/v8, arm/v7, arm/v6 in the list
-			if pls[i].Architecture == "amd64" {
-				return pls[j].Architecture != "arm"
-			}
-			if pls[j].Architecture == "amd64" {
-				return pls[i].Architecture == "arm"
-			}
-		}
-		return pls[i].Architecture < pls[j].Architecture
+		return platformRank(pls[i].Architecture, currentPlatform.Architecture) <
+			platformRank(pls[j].Architecture, currentPlatform.Architecture)
 	})
 	return pls
+}
+
+func platformRank(architecture, currentArchitecture string) int {
+	order := []string{"amd64", "arm64", "arm", "mips64", "mips64el", "ppc64le", "riscv64", "s390x"}
+	if currentArchitecture == "arm64" {
+		order = []string{"arm64", "arm", "amd64", "mips64", "mips64el", "ppc64le", "riscv64", "s390x"}
+	}
+	for rank, candidate := range order {
+		if architecture == candidate {
+			return rank
+		}
+	}
+	return len(order)
 }

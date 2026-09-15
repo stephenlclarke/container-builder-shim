@@ -20,7 +20,6 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"os"
 
 	"github.com/apple/container-builder-shim/pkg/api"
 	"github.com/apple/container-builder-shim/pkg/fileutils"
@@ -32,14 +31,13 @@ var (
 )
 
 type File struct {
-	ctx      context.Context
-	id       string
-	info     *fileutils.FileInfo
-	proxy    *FSSyncProxy
-	index    int64
-	filePath string
-	rs       io.ReadSeekCloser
-	buf      []byte
+	ctx   context.Context
+	id    string
+	info  *fileutils.FileInfo
+	proxy *FSSyncProxy
+	index int64
+	rs    io.ReadSeekCloser
+	buf   []byte
 }
 
 func (f *File) ReadAt(p []byte, off int64) (n int, err error) {
@@ -61,20 +59,6 @@ func (f *File) ReadAt(p []byte, off int64) (n int, err error) {
 			err = io.EOF
 		}
 		return n, err
-	}
-
-	if f.filePath != "" {
-		fx, err := os.Open(f.filePath)
-		if !os.IsNotExist(err) {
-			return 0, err
-		}
-
-		if err == nil || os.IsNotExist(err) {
-			if _, err := fx.Seek(off, io.SeekCurrent); err != nil {
-				return 0, err
-			}
-			return f.Read(p)
-		}
 	}
 
 	length := len(p)
@@ -105,22 +89,6 @@ func (f *File) Read(p []byte) (n int, err error) {
 		ln, err := f.rs.Read(p)
 		f.index += int64(ln)
 		return ln, err
-	}
-
-	if f.filePath != "" {
-		fx, err := os.Open(f.filePath)
-		if !os.IsNotExist(err) {
-			return 0, err
-		}
-
-		if err == nil || os.IsNotExist(err) {
-			if _, err := fx.Seek(f.index, io.SeekCurrent); err != nil {
-				return 0, err
-			}
-			ln, err := f.Read(p)
-			f.index += int64(ln)
-			return ln, err
-		}
 	}
 
 	if f.buf != nil {

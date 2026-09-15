@@ -56,8 +56,8 @@ func (r *racyReaderAt) ReadAt(p []byte, off int64) (int, error) {
 	defer r.concurrent.Add(-1)
 
 	for {
-		max := r.maxConcurrent.Load()
-		if current <= max || r.maxConcurrent.CompareAndSwap(max, current) {
+		currentMaximum := r.maxConcurrent.Load()
+		if current <= currentMaximum || r.maxConcurrent.CompareAndSwap(currentMaximum, current) {
 			break
 		}
 	}
@@ -328,20 +328,6 @@ func TestPrefetcherExtremeChunkSizes(t *testing.T) {
 		t.Skip("Skipping extreme chunk sizes test in short mode")
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-
-	done := make(chan struct{})
-	go func() {
-		defer close(done)
-		select {
-		case <-ctx.Done():
-			if ctx.Err() == context.DeadlineExceeded {
-				t.Log("Test timed out, but this is expected for extreme parameter testing")
-			}
-		case <-done:
-		}
-	}()
 	dataSize := 1024 * 1024
 	reader := newMockReaderAt(dataSize, 0, 0)
 
@@ -361,49 +347,48 @@ func TestPrefetcherExtremeChunkSizes(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			config := DefaultConfig()
-			config.ChunkSize = tc.chunkSize
-			config.WindowSize = tc.windowSize
-			config.MaxParallelReads = tc.maxParallelReads
-
-			pf, err := New(reader, int64(dataSize), config)
-			if err != nil {
-				t.Fatalf("Failed to create prefetcher: %v", err)
-			}
-			defer pf.Close()
-
-			for offset := 0; offset < dataSize-tc.readSize; offset += dataSize / 10 {
-				buf := make([]byte, tc.readSize)
-				n, err := pf.ReadAt(buf, int64(offset))
-
-				if err != nil && err != io.EOF {
-					t.Errorf("Error reading at offset %d: %v", offset, err)
-					continue
-				}
-
-				expectedLen := tc.readSize
-				if offset+tc.readSize > dataSize {
-					expectedLen = dataSize - offset
-				}
-
-				if n != expectedLen {
-					t.Errorf("Expected to read %d bytes, got %d", expectedLen, n)
-				}
-
-				for i := 0; i < min(10, n); i++ {
-					expected := byte((offset + i) % 256)
-					if buf[i] != expected {
-						t.Errorf("Data mismatch at offset %d: expected %d, got %d",
-							offset+i, expected, buf[i])
-						break
-					}
-				}
-			}
+			runExtremeChunkSizeCase(t, reader, dataSize, tc.chunkSize, tc.readSize, tc.windowSize, tc.maxParallelReads)
 		})
 	}
 }
 
-func min(a, b int) int {
+func runExtremeChunkSizeCase(t *testing.T, reader io.ReaderAt, dataSize, chunkSize, readSize int, windowSize int64, parallelReads int) {
+	t.Helper()
+	config := DefaultConfig()
+	config.ChunkSize = chunkSize
+	config.WindowSize = windowSize
+	config.MaxParallelReads = parallelReads
+	prefetcher, err := New(reader, int64(dataSize), config)
+	if err != nil {
+		t.Fatalf("failed to create prefetcher: %v", err)
+	}
+	defer prefetcher.Close()
+	for offset := 0; offset < dataSize-readSize; offset += dataSize / 10 {
+		buffer := make([]byte, readSize)
+		n, err := prefetcher.ReadAt(buffer, int64(offset))
+		if err != nil && err != io.EOF {
+			t.Errorf("error reading at offset %d: %v", offset, err)
+			continue
+		}
+		if n != readSize {
+			t.Errorf("expected to read %d bytes, got %d", readSize, n)
+		}
+		assertGeneratedData(t, buffer[:minimum(10, n)], offset)
+	}
+}
+
+func assertGeneratedData(t *testing.T, data []byte, offset int) {
+	t.Helper()
+	for index, value := range data {
+		expected := byte((offset + index) % 256)
+		if value != expected {
+			t.Errorf("data mismatch at offset %d: expected %d, got %d", offset+index, expected, value)
+			return
+		}
+	}
+}
+
+func minimum(a, b int) int {
 	if a < b {
 		return a
 	}
@@ -425,42 +410,43 @@ func TestPrefetcherZeroSizedReadsAndEmptyReader(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			reader := newMockReaderAt(tc.dataSize, 0, 0)
-
-			pf, err := New(reader, int64(tc.dataSize))
-			if err != nil {
-				t.Fatalf("Failed to create prefetcher: %v", err)
-			}
-			defer pf.Close()
-
-			for i := 0; i < tc.readCount; i++ {
-				var offset int64
-				if tc.dataSize > 0 {
-					offset = int64(i % tc.dataSize)
-				}
-
-				buf := make([]byte, tc.readSize)
-				n, err := pf.ReadAt(buf, offset)
-
-				switch {
-				case tc.dataSize == 0 && tc.readSize > 0:
-					if err != io.EOF {
-						t.Errorf("Expected EOF for non-zero read on empty reader, got %v", err)
-					}
-				case tc.readSize == 0:
-					if n != 0 {
-						t.Errorf("Expected 0 bytes for zero-sized read, got %d", n)
-					}
-					if tc.dataSize > 0 && offset < int64(tc.dataSize) && err != nil {
-						t.Errorf("Expected no error for zero-sized read within bounds, got %v", err)
-					}
-				case tc.dataSize > 0 && offset >= int64(tc.dataSize):
-					if err != io.EOF && !errors.Is(err, ErrOffsetOutOfRange) {
-						t.Errorf("Expected EOF or ErrOffsetOutOfRange when reading past end, got %v", err)
-					}
-				}
-			}
+			runZeroSizedReadCase(t, tc.dataSize, tc.readSize, tc.readCount)
 		})
+	}
+}
+
+func runZeroSizedReadCase(t *testing.T, dataSize, readSize, readCount int) {
+	t.Helper()
+	prefetcher, err := New(newMockReaderAt(dataSize, 0, 0), int64(dataSize))
+	if err != nil {
+		t.Fatalf("failed to create prefetcher: %v", err)
+	}
+	defer prefetcher.Close()
+	for index := 0; index < readCount; index++ {
+		offset := int64(0)
+		if dataSize > 0 {
+			offset = int64(index % dataSize)
+		}
+		n, err := prefetcher.ReadAt(make([]byte, readSize), offset)
+		assertZeroSizedRead(t, dataSize, readSize, offset, n, err)
+	}
+}
+
+func assertZeroSizedRead(t *testing.T, dataSize, readSize int, offset int64, n int, err error) {
+	t.Helper()
+	switch {
+	case dataSize == 0 && readSize > 0:
+		if err != io.EOF {
+			t.Errorf("expected EOF for non-zero read on empty reader, got %v", err)
+		}
+	case readSize == 0:
+		if n != 0 || (dataSize > 0 && offset < int64(dataSize) && err != nil) {
+			t.Errorf("zero-sized read returned n=%d err=%v", n, err)
+		}
+	case dataSize > 0 && offset >= int64(dataSize):
+		if err != io.EOF && !errors.Is(err, ErrOffsetOutOfRange) {
+			t.Errorf("expected EOF or ErrOffsetOutOfRange when reading past end, got %v", err)
+		}
 	}
 }
 

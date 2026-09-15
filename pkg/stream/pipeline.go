@@ -81,63 +81,66 @@ func NewPipeline(parent context.Context, raw Stream, stages ...Stage) (*StreamPi
 
 // Run blocks until the pipeline or its parent context ends.
 func (p *StreamPipeline) Run() error {
-	// Sender goroutine
 	p.wg.Add(1)
-	go func() {
-		defer p.wg.Done()
-		for {
-			select {
-			case s := <-p.sendCh:
-				if err := p.raw.Send(s); err != nil {
-					logrus.WithError(err).Error("Send error")
-					p.cancel()
-					return
-				}
-			case <-p.ctx.Done():
-				return
-			}
-		}
-	}()
-
-	// Receiver goroutine
+	go p.sendPackets()
 	p.wg.Add(1)
-	go func() {
-		defer p.wg.Done()
-		for {
-			pkt, err := p.raw.Recv()
-			if err != nil {
-				if err != io.EOF && err != context.Canceled {
-					logrus.WithError(err).Error("Recv error")
-				}
-				p.cancel()
-				return
-			}
-
-			handled := false
-			for _, stage := range p.stages {
-				err := stage.Filter(pkt)
-				switch {
-				case err == nil:
-					stage.Process(pkt)
-					handled = true
-				case errors.Is(err, ErrIgnorePacket):
-					continue
-				default: // real error
-					logrus.WithError(err).Warn("Filter error")
-					continue
-				}
-				if handled {
-					break
-				}
-			}
-			if !handled {
-				logrus.WithField("build_id", pkt.BuildId).Debug("dropped unhandled packet")
-			}
-		}
-	}()
+	go p.receivePackets()
 
 	<-p.ctx.Done()
 	p.wg.Wait()
 	// Don't close sendCh - let it be garbage collected to avoid "send on closed channel" panic
 	return p.ctx.Err()
+}
+
+func (p *StreamPipeline) sendPackets() {
+	defer p.wg.Done()
+	for {
+		select {
+		case packet := <-p.sendCh:
+			if err := p.raw.Send(packet); err != nil {
+				logrus.WithError(err).Error("Send error")
+				p.cancel()
+				return
+			}
+		case <-p.ctx.Done():
+			return
+		}
+	}
+}
+
+func (p *StreamPipeline) receivePackets() {
+	defer p.wg.Done()
+	for {
+		packet, err := p.raw.Recv()
+		if err != nil {
+			p.handleReceiveError(err)
+			return
+		}
+		if !p.dispatch(packet) {
+			logrus.WithField("build_id", packet.BuildId).Debug("dropped unhandled packet")
+		}
+	}
+}
+
+func (p *StreamPipeline) handleReceiveError(err error) {
+	if err != io.EOF && err != context.Canceled {
+		logrus.WithError(err).Error("Recv error")
+	}
+	p.cancel()
+}
+
+func (p *StreamPipeline) dispatch(packet *api.ClientStream) bool {
+	for _, stage := range p.stages {
+		err := stage.Filter(packet)
+		switch {
+		case err == nil:
+			stage.Process(packet)
+			return true
+		case errors.Is(err, ErrIgnorePacket):
+			continue
+		default:
+			logrus.WithError(err).Warn("Filter error")
+		}
+	}
+	return false
 }

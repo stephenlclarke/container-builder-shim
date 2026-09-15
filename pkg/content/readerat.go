@@ -109,7 +109,9 @@ type readerAt struct {
 func (r *readerAt) init() error {
 	req := r.packetReaderAt(0, 0)
 
-	demux := stream.NewDemuxWithContext(r.ctx, r.id, stream.FilterByBuildID(r.id), func(any) {})
+	demux := stream.NewDemuxWithContext(r.ctx, r.id, stream.FilterByBuildID(r.id), func(any) {
+		// Reader cleanup is owned by Close through the retained cancellation context.
+	})
 	r.proxy.RegisterDemux(r.id, demux)
 
 	resp, err := r.proxy.request(r.ctx, req)
