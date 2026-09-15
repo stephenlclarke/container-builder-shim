@@ -26,6 +26,7 @@ jobs:
     timeout-minutes: 30
     permissions:
       actions: read
+      checks: read
       contents: read
     outputs:
       publish: ${{ steps.context.outputs.publish }}
