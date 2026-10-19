@@ -23,13 +23,16 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	gofs "io/fs"
+	"net/url"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/apple/container-builder-shim/pkg/api"
 	"github.com/apple/container-builder-shim/pkg/stream"
+	"github.com/moby/patternmatcher"
 	"google.golang.org/grpc/metadata"
 )
 
@@ -133,6 +136,86 @@ func TestUnmarshalWalkMetadata_InvalidMode(t *testing.T) {
 	_, err := unmarshalWalkMetadata(ctx)
 	if err == nil {
 		t.Fatal("expected error for unsupported mode 'json', got nil")
+	}
+}
+
+// BuildKit query-escapes all values of a key once any of them is non-ASCII.
+func TestUnmarshalWalkMetadata_DecodesEncodedValues(t *testing.T) {
+	excludes := []string{"ignored/*", "report-日本語.txt", "literal,comma.txt"}
+	md := metadata.MD{"exclude-patterns-encoded": {"1"}}
+	for _, e := range excludes {
+		md["exclude-patterns"] = append(md["exclude-patterns"], url.QueryEscape(e))
+	}
+	md["followpaths"] = []string{url.QueryEscape("café"), url.QueryEscape("src")}
+	md["followpaths-encoded"] = []string{"1"}
+
+	got, err := unmarshalWalkMetadata(metadata.NewIncomingContext(context.Background(), md))
+	if err != nil {
+		t.Fatalf("unexpected err: %v", err)
+	}
+	if want := "ignored/*,report-日本語.txt,literal,comma.txt"; strings.Join(got.ExcludedPatterns, ",") != want {
+		t.Errorf("ExcludedPatterns = %q, want %q", got.ExcludedPatterns, want)
+	}
+	if want := "café,src"; got.FollowPaths != want {
+		t.Errorf("FollowPaths = %q, want %q", got.FollowPaths, want)
+	}
+
+	matcher, err := patternmatcher.New(got.ExcludedPatterns)
+	if err != nil {
+		t.Fatalf("patternmatcher.New: %v", err)
+	}
+	for _, path := range []string{"ignored/file.txt", "report-日本語.txt", "literal,comma.txt"} {
+		excluded, err := matcher.MatchesOrParentMatches(path)
+		if err != nil {
+			t.Fatalf("MatchesOrParentMatches(%q): %v", path, err)
+		}
+		if !excluded {
+			t.Errorf("%q is not excluded", path)
+		}
+	}
+}
+
+func TestUnmarshalWalkMetadata_KeepsUnencodedValues(t *testing.T) {
+	ctx := metadata.NewIncomingContext(context.Background(), metadata.Pairs("exclude-patterns", "100%+done"))
+	got, err := unmarshalWalkMetadata(ctx)
+	if err != nil {
+		t.Fatalf("unexpected err: %v", err)
+	}
+	if want := "100%+done"; strings.Join(got.ExcludedPatterns, ",") != want {
+		t.Errorf("ExcludedPatterns = %q, want %q", got.ExcludedPatterns, want)
+	}
+}
+
+func TestUnmarshalWalkMetadata_InvalidEncoding(t *testing.T) {
+	ctx := metadata.NewIncomingContext(context.Background(), metadata.Pairs(
+		"exclude-patterns", "%zz",
+		"exclude-patterns-encoded", "1",
+	))
+	if _, err := unmarshalWalkMetadata(ctx); err == nil {
+		t.Fatal("expected error for invalid encoding, got nil")
+	}
+}
+
+func TestUnmarshalWalkMetadata_InvalidEncodedFlag(t *testing.T) {
+	ctx := metadata.NewIncomingContext(context.Background(), metadata.Pairs(
+		"exclude-patterns", url.QueryEscape("ignored/*"),
+		"exclude-patterns-encoded", "yes",
+	))
+	if _, err := unmarshalWalkMetadata(ctx); err == nil {
+		t.Fatal("expected error for invalid encoded flag, got nil")
+	}
+}
+
+func TestUnmarshalWalkMetadata_InvalidEncodedStringFields(t *testing.T) {
+	for _, key := range []string{"include-patterns", "followpaths", "dir-name"} {
+		t.Run(key, func(t *testing.T) {
+			ctx := metadata.NewIncomingContext(context.Background(), metadata.Pairs(
+				key, "%zz", key+"-encoded", "1",
+			))
+			if _, err := unmarshalWalkMetadata(ctx); err == nil {
+				t.Fatal("expected invalid encoded metadata to fail")
+			}
+		})
 	}
 }
 
