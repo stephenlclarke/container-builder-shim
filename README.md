@@ -154,7 +154,7 @@ These rules govern how files are selected, transferred, and presented. They refl
 
 ### `.dockerignore`
 
-`.dockerignore` filtering is the shim's responsibility, not the host's. After unpacking the tar, the shim wraps the cache directory in BuildKit's `fsutil` filter and applies the raw `exclude-patterns` received from BuildKit before emitting `PACKET_STAT` entries. This preserves Docker-compatible negation behavior, including re-emitting excluded parent directories before re-included descendants. The host has no knowledge of `.dockerignore`.
+`.dockerignore` filtering is the shim's responsibility, not the host's. After unpacking the tar, the shim wraps the cache directory in BuildKit's `fsutil` filter and applies the decoded `exclude-patterns` received from BuildKit before emitting `PACKET_STAT` entries. BuildKit marks URL-encoded metadata when patterns contain non-ASCII characters; the shim decodes each value and preserves literal commas within individual patterns. This preserves Docker-compatible negation behavior, including re-emitting excluded parent directories before re-included descendants. The host has no knowledge of `.dockerignore`.
 
 ### `followpaths`
 

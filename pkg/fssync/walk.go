@@ -20,7 +20,9 @@ import (
 	"context"
 	"fmt"
 	"io/fs"
+	"net/url"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"github.com/google/uuid"
@@ -270,10 +272,19 @@ type WalkMetadata struct {
 func unmarshalWalkMetadata(ctx context.Context) (*WalkMetadata, error) {
 	md := &WalkMetadata{}
 	if m, ok := metadata.FromIncomingContext(ctx); ok {
-		md.IncludePatterns = strings.Join(m["include-patterns"], ",")
-		md.ExcludedPatterns = m["exclude-patterns"]
-		md.FollowPaths = strings.Join(m["followpaths"], ",")
-		md.DirName = strings.Join(m["dir-name"], ",")
+		var err error
+		if md.IncludePatterns, err = metadataValue(m, "include-patterns"); err != nil {
+			return nil, err
+		}
+		if md.ExcludedPatterns, err = metadataValues(m, "exclude-patterns"); err != nil {
+			return nil, err
+		}
+		if md.FollowPaths, err = metadataValue(m, "followpaths"); err != nil {
+			return nil, err
+		}
+		if md.DirName, err = metadataValue(m, "dir-name"); err != nil {
+			return nil, err
+		}
 		modeStr := strings.Join(m["mode"], ",")
 		switch modeStr {
 		case "", "tar":
@@ -286,4 +297,43 @@ func unmarshalWalkMetadata(ctx context.Context) (*WalkMetadata, error) {
 		md.Mode = ModeTAR
 	}
 	return md, nil
+}
+
+// metadataValue returns the comma-joined values of key. BuildKit query-escapes
+// every value of a key when any of them contains a non-ASCII character, and
+// marks this by setting "<key>-encoded" to "1", so such values are unescaped
+// here. An invalid flag or a value that fails to unescape is an error rather
+// than being used as-is, since an undecoded exclude pattern would silently
+// match nothing.
+func metadataValue(m metadata.MD, key string) (string, error) {
+	values, err := metadataValues(m, key)
+	if err != nil {
+		return "", err
+	}
+	return strings.Join(values, ","), nil
+}
+
+// metadataValues preserves individual patterns, including literal commas, for
+// the fsutil filter while applying BuildKit's encoded-metadata convention.
+func metadataValues(m metadata.MD, key string) ([]string, error) {
+	values := m[key]
+	encoded := false
+	if flag := m[key+"-encoded"]; len(flag) > 0 {
+		var err error
+		if encoded, err = strconv.ParseBool(flag[0]); err != nil {
+			return nil, fmt.Errorf("invalid %s-encoded metadata: %w", key, err)
+		}
+	}
+	if !encoded {
+		return values, nil
+	}
+	decoded := make([]string, len(values))
+	for i, v := range values {
+		d, err := url.QueryUnescape(v)
+		if err != nil {
+			return nil, fmt.Errorf("failed to decode %s metadata: %w", key, err)
+		}
+		decoded[i] = d
+	}
+	return decoded, nil
 }
