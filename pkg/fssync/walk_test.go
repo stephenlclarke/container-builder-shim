@@ -141,7 +141,7 @@ func TestUnmarshalWalkMetadata_InvalidMode(t *testing.T) {
 
 // BuildKit query-escapes all values of a key once any of them is non-ASCII.
 func TestUnmarshalWalkMetadata_DecodesEncodedValues(t *testing.T) {
-	excludes := []string{"ignored/*", "report-日本語.txt"}
+	excludes := []string{"ignored/*", "report-日本語.txt", "report,français.txt"}
 	md := metadata.MD{"exclude-patterns-encoded": {"1"}}
 	for _, e := range excludes {
 		md["exclude-patterns"] = append(md["exclude-patterns"], url.QueryEscape(e))
@@ -153,7 +153,7 @@ func TestUnmarshalWalkMetadata_DecodesEncodedValues(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected err: %v", err)
 	}
-	if want := "ignored/*,report-日本語.txt"; strings.Join(got.ExcludedPatterns, ",") != want {
+	if want := "ignored/*,report-日本語.txt,report,français.txt"; len(got.ExcludedPatterns) != len(excludes) || strings.Join(got.ExcludedPatterns, ",") != want {
 		t.Errorf("ExcludedPatterns = %q, want %q", got.ExcludedPatterns, want)
 	}
 	if want := "café,src"; got.FollowPaths != want {
@@ -164,7 +164,7 @@ func TestUnmarshalWalkMetadata_DecodesEncodedValues(t *testing.T) {
 	if err != nil {
 		t.Fatalf("patternmatcher.New: %v", err)
 	}
-	for _, path := range []string{"ignored/file.txt", "report-日本語.txt"} {
+	for _, path := range []string{"ignored/file.txt", "report-日本語.txt", "report,français.txt"} {
 		excluded, err := matcher.MatchesOrParentMatches(path)
 		if err != nil {
 			t.Fatalf("MatchesOrParentMatches(%q): %v", path, err)
