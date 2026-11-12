@@ -1,7 +1,7 @@
 # Pin both multi-platform base-image indexes so a release is reproducible even
 # if the readable upstream tags advance after this source commit is published.
-ARG BUILD_IMAGE=docker.io/library/golang@sha256:56961d79ea8129efddcc0b8643fd8a5416b4e6228cfd477e3fd61deb2672c587
-ARG FINAL_IMAGE=docker.io/moby/buildkit@sha256:de10faf919fc71ba4eb1dd7bd6449566d012b0c9436b1c61bfee21d621b009aa
+ARG BUILD_IMAGE=docker.io/library/golang@sha256:8ac98ca534ac3f51e1f420a1dd2c15e74c75cfa0f23f3ad27eb5d7236c349a0c
+ARG FINAL_IMAGE=docker.io/moby/buildkit@sha256:99368f3e46177c6405b9740e4461d91cee004128daeecca78d4ceac50ec1da5c
 ARG SOURCE_REPOSITORY=https://github.com/stephenlclarke/container-builder-shim
 
 FROM --platform=$BUILDPLATFORM ${BUILD_IMAGE} AS build-base

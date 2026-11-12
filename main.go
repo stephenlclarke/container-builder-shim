@@ -125,7 +125,7 @@ var app = &cobra.Command{
 				}
 			}
 			if debug {
-				config.Debug = true
+				config.Log = &buildkit.LogConfig{Level: "debug"}
 				config.GRPC.DebugAddress = debugGRPCAddress
 			}
 			runcPath, err := exec.LookPath("buildkit-runc")
