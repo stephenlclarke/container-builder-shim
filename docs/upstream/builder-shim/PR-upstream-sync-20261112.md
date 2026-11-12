@@ -21,6 +21,8 @@ The old Dockerfile path scan is removed because it could omit required files.
 - Final review found no further issue after the file filtering fix.
 
 The protected main branch does not permit a force push. The reviewed rebase
-is retained on `sync/apple-main-20261112` for publication.
+is retained on `sync/apple-main-20261112` for publication. A history-only merge
+keeps the published fork main as an ancestor without changing the rebased tree.
+The branch can then follow the normal review and merge process.
 
 See [the issue record](ISSUE-upstream-sync-20261112.md).
