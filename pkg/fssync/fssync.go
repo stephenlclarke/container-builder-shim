@@ -58,8 +58,7 @@ type FSSyncProxy struct {
 	dockerignore []byte
 }
 
-func NewFSSyncProxy(contextDir string, basePath string,
-	dockerfile []byte, dockerignore []byte) (*FSSyncProxy, error) {
+func NewFSSyncProxy(contextDir, basePath string, dockerfile, dockerignore []byte) (*FSSyncProxy, error) {
 
 	f := new(FSSyncProxy)
 	f.contextDir = contextDir
