@@ -461,11 +461,7 @@ func createBuildServices(ctx context.Context, basePath string, request *parsedBu
 	if err != nil {
 		return nil, err
 	}
-	addedGlobs, err := dockerfileAddedGlobs(dockerfile)
-	if err != nil {
-		return nil, err
-	}
-	fssyncProxy, err := fssync.NewFSSyncProxy(".", basePath, addedGlobs, request.dockerfile, request.dockerignore)
+	fssyncProxy, err := fssync.NewFSSyncProxy(".", basePath, request.dockerfile, request.dockerignore)
 	if err != nil {
 		return nil, err
 	}
@@ -575,46 +571,6 @@ func applyDockerfileMetaArgs(metaArgs []instructions.ArgCommand, buildArgs map[s
 		}
 	}
 	return nil
-}
-
-func dockerfileAddedGlobs(dockerfile *parser.Result) ([]string, error) {
-	addedGlobs := []string{}
-	for _, node := range dockerfile.AST.Children {
-		if strings.EqualFold(node.Value, "COPY") || strings.EqualFold(node.Value, "ADD") {
-			addedGlobs = append(addedGlobs, node.Next.Value)
-		}
-		if strings.EqualFold(node.Value, "RUN") {
-			mountGlobs, err := runMountGlobs(node)
-			if err != nil {
-				return nil, err
-			}
-			addedGlobs = append(addedGlobs, mountGlobs...)
-		}
-	}
-	return addedGlobs, nil
-}
-
-func runMountGlobs(node *parser.Node) ([]string, error) {
-	command, err := instructions.ParseInstruction(node)
-	if err != nil {
-		return nil, nil
-	}
-	runCommand, ok := command.(*instructions.RunCommand)
-	if !ok {
-		return nil, nil
-	}
-	if err := runCommand.Expand(func(word string) (string, error) {
-		return filepath.Clean(strings.TrimPrefix(word, "/")), nil
-	}); err != nil {
-		return nil, err
-	}
-	result := []string{}
-	for _, mount := range instructions.GetMounts(runCommand) {
-		if mount.Type == instructions.MountTypeBind && mount.Source != "" && mount.From == "" {
-			result = append(result, mount.Source)
-		}
-	}
-	return result, nil
 }
 
 func lastMetadataValue(values []string) string {

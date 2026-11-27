@@ -20,7 +20,9 @@ import (
 	"context"
 	"fmt"
 	"io/fs"
+	"net/url"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"github.com/google/uuid"
@@ -43,8 +45,9 @@ is applied by the fsutil filter that DiffCopy wraps around this FS.
 Only TAR mode is supported. The JSON mode wire format is defined in
 RawFileInfo below but is not exercised by the current shim.
 
-If BuildKit does not supply followpaths, the shim falls back to addedGlobs —
-source paths pre-computed from the Dockerfile AST (see pkg/build/buildopts.go).
+BuildKit omits followpaths when a build step needs the whole context (for
+example COPY . . or a RUN --mount=type=tmpfs). An empty value therefore means
+"everything", and the shim requests "." from the host in that case.
 
 Request Format:
 
@@ -101,10 +104,7 @@ func (f *FS) Walk(ctx context.Context, target string, fn fs.WalkDirFunc) error {
 	})
 	f.proxy.RegisterDemux(id, demux)
 
-	followPaths := walkMeta.FollowPaths
-	if followPaths == "" {
-		followPaths = strings.Join(f.proxy.addedGlobs, ",")
-	}
+	followPaths := effectiveFollowPaths(walkMeta.FollowPaths)
 	syntheticFollowPaths := requestedSyntheticDockerfilePaths(followPaths)
 	dirName := walkMeta.DirName
 	if len(syntheticFollowPaths) > 0 {
@@ -247,6 +247,18 @@ func requestedSyntheticDockerfilePaths(followPaths string) map[string]struct{} {
 	return paths
 }
 
+// effectiveFollowPaths returns the followpaths value to send to the host.
+//
+// BuildKit sends no followpaths when a build step needs the whole context, so
+// an empty value means "everything". The host reads an empty list as "nothing",
+// so request the whole context explicitly.
+func effectiveFollowPaths(fromBuildKit string) string {
+	if fromBuildKit == "" {
+		return "."
+	}
+	return fromBuildKit
+}
+
 // RawFileInfo is the wire‑format for Walk (json mode).
 type RawFileInfo struct {
 	Name    string `json:"name"`
@@ -270,10 +282,19 @@ type WalkMetadata struct {
 func unmarshalWalkMetadata(ctx context.Context) (*WalkMetadata, error) {
 	md := &WalkMetadata{}
 	if m, ok := metadata.FromIncomingContext(ctx); ok {
-		md.IncludePatterns = strings.Join(m["include-patterns"], ",")
-		md.ExcludedPatterns = m["exclude-patterns"]
-		md.FollowPaths = strings.Join(m["followpaths"], ",")
-		md.DirName = strings.Join(m["dir-name"], ",")
+		var err error
+		if md.IncludePatterns, err = metadataValue(m, "include-patterns"); err != nil {
+			return nil, err
+		}
+		if md.ExcludedPatterns, err = metadataValues(m, "exclude-patterns"); err != nil {
+			return nil, err
+		}
+		if md.FollowPaths, err = metadataValue(m, "followpaths"); err != nil {
+			return nil, err
+		}
+		if md.DirName, err = metadataValue(m, "dir-name"); err != nil {
+			return nil, err
+		}
 		modeStr := strings.Join(m["mode"], ",")
 		switch modeStr {
 		case "", "tar":
@@ -286,4 +307,38 @@ func unmarshalWalkMetadata(ctx context.Context) (*WalkMetadata, error) {
 		md.Mode = ModeTAR
 	}
 	return md, nil
+}
+
+// metadataValue returns the comma-joined values of key. BuildKit query-escapes
+// every value of a key when any of them contains a non-ASCII character, and
+// marks this by setting "<key>-encoded" to "1", so such values are unescaped
+// here. An invalid flag or a value that fails to unescape is an error rather
+// than being used as-is, since an undecoded exclude pattern would silently
+// match nothing.
+func metadataValue(m metadata.MD, key string) (string, error) {
+	values, err := metadataValues(m, key)
+	return strings.Join(values, ","), err
+}
+
+func metadataValues(m metadata.MD, key string) ([]string, error) {
+	values := m[key]
+	encoded := false
+	if flag := m[key+"-encoded"]; len(flag) > 0 {
+		var err error
+		if encoded, err = strconv.ParseBool(flag[0]); err != nil {
+			return nil, fmt.Errorf("invalid %s-encoded metadata: %w", key, err)
+		}
+	}
+	if !encoded {
+		return values, nil
+	}
+	decoded := make([]string, len(values))
+	for i, v := range values {
+		d, err := url.QueryUnescape(v)
+		if err != nil {
+			return nil, fmt.Errorf("failed to decode %s metadata: %w", key, err)
+		}
+		decoded[i] = d
+	}
+	return decoded, nil
 }
